@@ -32,6 +32,11 @@ def bootstrap_ci(
     if values.size == 0:
         raise ValueError("bootstrap_ci requires a non-empty sample")
     chunk = max(1, _MAX_RESAMPLE_CELLS // len(values))
+    if chunk == 1 and len(values) > _MAX_RESAMPLE_CELLS:
+        raise ValueError(
+            f"sample has {len(values)} rows, exceeding the cell budget of "
+            f"{_MAX_RESAMPLE_CELLS}; increase _MAX_RESAMPLE_CELLS or downsample"
+        )
     draws = np.concatenate(
         [
             stat(
@@ -81,6 +86,7 @@ def eb_shrink(xbar, n, s2, mu, tau2):
     xbar, n, s2 = (np.asarray(a, dtype=float) for a in (xbar, n, s2))
     if tau2 <= 0.0:
         return np.broadcast_to(np.asarray(mu, dtype=float), np.broadcast(xbar, n, s2).shape).copy()
+    s2 = np.maximum(s2, 1e-300)
     return (n * xbar / s2 + mu / tau2) / (n / s2 + 1.0 / tau2)
 
 

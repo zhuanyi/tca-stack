@@ -34,6 +34,13 @@ def test_bootstrap_ci_empty_sample_raises(empty):
         stats.bootstrap_ci(empty)
 
 
+def test_bootstrap_ci_huge_sample_raises(monkeypatch):
+    monkeypatch.setattr(stats, "_MAX_RESAMPLE_CELLS", 100)
+    big = np.zeros(200)
+    with pytest.raises(ValueError, match="cell budget"):
+        stats.bootstrap_ci(big)
+
+
 def test_ols_cluster_matches_hand_sandwich():
     rng = np.random.default_rng(10)
     g = np.repeat(np.arange(40), 5)
@@ -101,6 +108,11 @@ def test_eb_shrink_moves_small_n_more_than_large_n():
 def test_eb_shrink_zero_tau2_returns_prior_mean():
     out = stats.eb_shrink(np.array([1.0, 5.0]), np.array([10, 20]), 4.0, 2.5, 0.0)
     np.testing.assert_array_equal(out, [2.5, 2.5])
+
+
+def test_eb_shrink_zero_variance_does_not_divide_by_zero():
+    out = stats.eb_shrink(np.array([2.0]), np.array([10]), np.array([0.0]), 0.0, 1.0)
+    assert np.all(np.isfinite(out))
 
 
 def test_required_n_hand_value_and_monotone_in_delta():

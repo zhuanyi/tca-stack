@@ -8,6 +8,7 @@ final coupon period uses simple interest.
 from __future__ import annotations
 
 import calendar as _calendar
+import math
 from datetime import date, timedelta
 
 import numpy as np
@@ -40,6 +41,8 @@ def _coupon_period(maturity: date, settle: date) -> tuple[date, date, int]:
     ``prev`` is the last coupon date on or before ``settle`` and ``nxt`` the first one after it;
     the count includes the coupon paid at maturity.
     """
+    if settle >= maturity:
+        raise ValueError(f"settle {settle} must be before maturity {maturity}")
     k = 0
     while _add_months(maturity, -6 * (k + 1), maturity.day) > settle:
         k += 1
@@ -115,8 +118,12 @@ def dv01(coupon: float, maturity: date, settle: date, yld, face: float = 1_000_0
 
 
 def format_32nds(price: float) -> str:
-    """Format points as ``handle-32nds``, ``+`` marking a half: 99.515625 is ``99-16+``."""
-    halves = round(price * 64)
+    """Format points as ``handle-32nds``, ``+`` marking a half: 99.515625 is ``99-16+``.
+
+    Uses half-up rounding (``floor(price * 64 + 0.5)``) rather than banker's rounding so the
+    output is deterministic near 32nd boundaries.
+    """
+    halves = math.floor(price * 64 + 0.5)
     handle, rem = divmod(halves, 64)
     thirty_seconds, half = divmod(rem, 2)
     return f"{handle}-{thirty_seconds:02d}{'+' if half else ''}"
@@ -124,6 +131,8 @@ def format_32nds(price: float) -> str:
 
 def parse_32nds(text: str) -> float:
     """Parse ``handle-32nds`` text, with an optional trailing ``+`` for a half, into points."""
-    handle, frac = text.strip().split("-")
+    handle, sep, frac = text.strip().partition("-")
+    if not sep or not handle.isdigit() or not frac.rstrip("+").isdigit():
+        raise ValueError(f"invalid 32nds price {text!r}; expected 'handle-32nds[+]'")
     half = frac.endswith("+")
     return int(handle) + (int(frac.rstrip("+")) + 0.5 * half) / 32.0

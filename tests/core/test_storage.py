@@ -188,6 +188,37 @@ def test_build_duckdb_escapes_double_quotes_in_table_names(tmp_path):
     derived = tmp_path / "derived"
     storage.write_table(_frame(5), 'odd"name', derived)
     db_path = tmp_path / "tca.duckdb"
-    assert storage.build_duckdb(derived, db_path) == {'odd"name': 5}
-    with duckdb.connect(str(db_path), read_only=True) as con:
-        assert con.execute('select count(*) from "odd""name"').fetchone() == (5,)
+    with pytest.raises(ValueError, match="table name"):
+        storage.build_duckdb(derived, db_path)
+
+
+def test_write_table_parts_removes_stale_parts(tmp_path):
+    df = _frame(100, seed=42)
+    storage.write_table_parts(df, "fills", rows_per_part=50, derived=tmp_path)
+    assert len(list((tmp_path / "fills").glob("part-*.parquet"))) == 2
+    storage.write_table_parts(df, "fills", rows_per_part=100, derived=tmp_path)
+    parts = sorted((tmp_path / "fills").glob("part-*.parquet"))
+    assert len(parts) == 1
+    assert parts[0].name == "part-00000.parquet"
+
+
+def test_build_duckdb_atomic_no_partial_on_failure(tmp_path):
+    derived = tmp_path / "derived"
+    storage.write_table(_frame(10), "good", derived)
+    db_path = tmp_path / "tca.duckdb"
+    storage.build_duckdb(derived, db_path)
+    old_bytes = db_path.read_bytes()
+    (derived / "bad name!").mkdir()
+    (derived / "bad name!" / "part-00000.parquet").write_bytes(b"not parquet")
+    with pytest.raises(ValueError, match="table name"):
+        storage.build_duckdb(derived, db_path)
+    assert db_path.read_bytes() == old_bytes
+
+
+def test_build_duckdb_rejects_invalid_table_names(tmp_path):
+    derived = tmp_path / "derived"
+    derived.mkdir(parents=True, exist_ok=True)
+    (derived / "has space").mkdir()
+    (derived / "has space" / "part-00000.parquet").write_bytes(b"x")
+    with pytest.raises(ValueError, match="table name"):
+        storage.build_duckdb(derived, tmp_path / "tca.duckdb")

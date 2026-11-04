@@ -4,22 +4,22 @@ RUN = $(UV) run
 .PHONY: setup data simulate tca figures notes test lint reproduce
 
 setup:
-	$(UV) sync
+	$(UV) sync --locked
 
 data:
 	$(RUN) tca ust data
 	$(RUN) tca fx data
 
-simulate:
+simulate: data
 	$(RUN) tca ust simulate
 	$(RUN) tca fx simulate
 
-tca:
+tca: simulate
 	$(RUN) tca ust tca
 	$(RUN) tca fx tca
 	$(RUN) tca db build
 
-figures:
+figures: tca
 	$(RUN) tca ust figures
 	$(RUN) tca fx figures
 
@@ -35,4 +35,4 @@ lint:
 	$(RUN) ruff check .
 	$(RUN) ruff format --check .
 
-reproduce: data simulate tca figures notes
+reproduce: setup lint test figures notes

@@ -71,6 +71,23 @@ def test_reset_clears_state():
     assert state.value(0.0) == 1.0
 
 
+def test_reset_accepts_clock_origin():
+    state = ImpactState(perm_frac=0.3, half_life_s=10.0)
+    state.add(100.0, 5.0)
+    state.reset(t_s=100.0)
+    assert state.value(100.0) == 0.0
+    state.add(100.0, 2.0)
+    assert state.value(100.0) == 2.0
+    assert state.value(110.0) == pytest.approx(0.3 * 2.0 + 0.5 * 0.7 * 2.0, abs=1e-12)
+
+
+def test_first_add_does_not_decay_from_zero():
+    state = ImpactState(perm_frac=0.5, half_life_s=10.0)
+    state.add(1000.0, 4.0)
+    assert state.value(1000.0) == 4.0
+    assert state.value(1010.0) == pytest.approx(0.5 * 4.0 + 0.5 * 0.5 * 4.0, abs=1e-12)
+
+
 def test_invalid_parameters_raise():
     with pytest.raises(ValueError):
         ImpactState(perm_frac=1.5, half_life_s=10.0)

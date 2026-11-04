@@ -30,6 +30,7 @@ class ImpactState:
     _permanent: float = field(default=0.0, init=False, repr=False)
     _transient: float = field(default=0.0, init=False, repr=False)
     _t_s: float = field(default=0.0, init=False, repr=False)
+    _initialised: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.perm_frac <= 1.0:
@@ -47,6 +48,9 @@ class ImpactState:
     def add(self, t_s: float, signed_impact: float) -> None:
         """Record an impact of ``signed_impact`` (price units) at time ``t_s`` seconds."""
         self._check(t_s)
+        if not self._initialised:
+            self._t_s = float(t_s)
+            self._initialised = True
         self._transient = (
             self._transient * self._decay(t_s) + (1.0 - self.perm_frac) * signed_impact
         )
@@ -64,8 +68,13 @@ class ImpactState:
         self._check(t)
         return self._permanent + self._transient * self._decay(t)
 
-    def reset(self) -> None:
-        """Clear all impact and rewind the clock to zero."""
+    def reset(self, t_s: float = 0.0) -> None:
+        """Clear all impact and set the clock to ``t_s`` (default 0.0).
+
+        The caller passes the current simulator clock so the next :meth:`add` does not see
+        a spurious time-origin mismatch.
+        """
         self._permanent = 0.0
         self._transient = 0.0
-        self._t_s = 0.0
+        self._t_s = float(t_s)
+        self._initialised = False

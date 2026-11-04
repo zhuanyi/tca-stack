@@ -70,6 +70,20 @@ def test_load_events_yaml(tmp_path):
     assert df["tenor"].isna().tolist() == [True, False]
 
 
+def test_load_events_empty_yaml_raises(tmp_path):
+    p = tmp_path / "empty.yaml"
+    p.write_text("")
+    with pytest.raises(ValueError, match="no events"):
+        cal.load_events(p)
+
+
+def test_load_events_missing_events_key_raises(tmp_path):
+    p = tmp_path / "nokey.yaml"
+    p.write_text("other: stuff\n")
+    with pytest.raises(ValueError, match="no events"):
+        cal.load_events(p)
+
+
 @pytest.mark.parametrize("year", [2024, 2025, 2026])
 def test_good_friday_is_closed(year):
     good_friday = {2024: date(2024, 3, 29), 2025: date(2025, 4, 18), 2026: date(2026, 4, 3)}

@@ -110,6 +110,30 @@ def test_parse_32nds_plus_and_plain():
     assert bm.parse_32nds("100-00") == 100.0
 
 
+def test_parse_32nds_rejects_malformed_input():
+    with pytest.raises(ValueError, match="invalid 32nds"):
+        bm.parse_32nds("no-dash-here-extra")
+    with pytest.raises(ValueError, match="invalid 32nds"):
+        bm.parse_32nds("abc-16")
+    with pytest.raises(ValueError, match="invalid 32nds"):
+        bm.parse_32nds("99")
+
+
+def test_coupon_period_rejects_matured_bond():
+    with pytest.raises(ValueError, match=r"settle.*must be before maturity"):
+        bm._coupon_period(date(2025, 1, 15), date(2025, 1, 15))
+    with pytest.raises(ValueError, match=r"settle.*must be before maturity"):
+        bm._coupon_period(date(2025, 1, 15), date(2026, 1, 1))
+
+
+def test_format_32nds_half_up_rounding():
+    # 99 + 31.5/32 = 99.984375 -> should be 99-31+ (half-up)
+    assert bm.format_32nds(99.984375) == "99-31+"
+    # price just below a boundary: 100 - 1/64 = 99.984375 -> 99-31+
+    # price at exact boundary: 100.0 -> 100-00
+    assert bm.format_32nds(100.0) == "100-00"
+
+
 def test_price_from_yield_36000_array_is_fast():
     ys = np.linspace(0.02, 0.06, 36_000)
     settle, maturity = date(2025, 5, 15), date(2055, 5, 15)

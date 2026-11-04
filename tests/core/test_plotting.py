@@ -95,3 +95,27 @@ def test_markout_curve_and_heatmap_render():
     common.heatmap_with_values(axes[1], frame)
     assert [t.get_text() for t in axes[1].texts][:2] == ["1.00", "10.00"]
     style.save(fig, "multi")
+
+
+def test_binned_means_drops_nan_rows():
+    x = np.array([1.0, 2.0, np.nan, 4.0, 5.0])
+    y = np.array([10.0, np.nan, 30.0, 40.0, 50.0])
+    table = common.binned_means(x, y, 2, rng=np.random.default_rng(0))
+    assert table["n"].sum() == 3
+
+
+def test_cost_vs_size_rejects_non_positive_sizes():
+    _, ax = style.figure("t", "s", "src")
+    with pytest.raises(ValueError, match="strictly positive"):
+        common.cost_vs_size(ax, [0, 1, 2], [1, 2, 3])
+
+
+def test_heatmap_all_nan_does_not_raise():
+    _, ax = style.figure("t", "s", "src")
+    frame = pd.DataFrame({"a": [np.nan, np.nan], "b": [np.nan, np.nan]})
+    common.heatmap_with_values(ax, frame)
+
+
+def test_apply_idempotent_with_open_figure():
+    style.figure("t", "s", "src")
+    style.apply()  # should not raise even though a figure exists

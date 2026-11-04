@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import matplotlib
 import matplotlib.pyplot as plt
 from cycler import cycler
 from matplotlib.figure import Figure
@@ -31,7 +32,7 @@ def figures_dir() -> Path:
 def apply(hero: bool = False) -> None:
     """Apply the repository style to matplotlib; ``hero`` raises the base font to 14 pt."""
     base = 14.0 if hero else 11.0
-    plt.switch_backend("Agg")
+    matplotlib.use("Agg", force=True)
     plt.rcParams.update(
         {
             "figure.dpi": DPI,
@@ -84,7 +85,9 @@ def figure(
 def save(fig: Figure, name: str) -> Path:
     """Save ``fig`` as ``<figures_dir>/<name>.png`` at exactly 1600 x 900 px and close it.
 
-    The PNG carries no software or time metadata, so identical figures give identical bytes.
+    The PNG carries no software or time metadata; other keys may still be written by
+    matplotlib depending on version, so byte-identical output is not guaranteed across
+    environments.
     """
     path = figures_dir() / f"{name}.png"
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -46,6 +46,7 @@ def binned_means(x, y, bins, rng: np.random.Generator | None = None) -> pd.DataF
     """
     rng = rng if rng is not None else np.random.default_rng(0)
     frame = pd.DataFrame({"x": np.asarray(x, dtype=float), "y": np.asarray(y, dtype=float)})
+    frame = frame.dropna(subset=["x", "y"])
     if np.ndim(bins) == 0:
         frame["bin"] = pd.qcut(frame["x"], int(bins), labels=False, duplicates="drop")
     else:
@@ -78,7 +79,12 @@ def cost_vs_size(
         label="Bin mean, 95% CI",
     )
     a, b, c = fit_power_law(size, cost)
-    grid = np.geomspace(size.min(), size.max(), 200)
+    lo, hi = float(size.min()), float(size.max())
+    if lo <= 0 or hi <= 0 or lo >= hi:
+        raise ValueError(
+            f"cost_vs_size requires strictly positive sizes with min < max; got [{lo}, {hi}]"
+        )
+    grid = np.geomspace(lo, hi, 200)
     ax.plot(grid, a + b * grid**c, color=PALETTE[3], label=f"Fit a + b·size^c, c = {c:.2f}")
     ax.set_xscale("log")
     ax.text(0.03, 0.95, f"exponent c = {c:.2f}", transform=ax.transAxes, va="top")
@@ -110,7 +116,10 @@ def heatmap_with_values(
     ax.imshow(shade, aspect="auto", cmap="viridis")
     ax.set_xticks(range(frame.shape[1]), [str(c) for c in frame.columns])
     ax.set_yticks(range(frame.shape[0]), [str(i) for i in frame.index])
-    lo, hi = np.nanmin(shade), np.nanmax(shade)
+    if np.all(np.isnan(shade)):
+        lo = hi = 0.0
+    else:
+        lo, hi = np.nanmin(shade), np.nanmax(shade)
     for (i, j), v in np.ndenumerate(values):
         dark = hi > lo and (shade[i, j] - lo) / (hi - lo) < 0.5
         ax.text(j, i, format(v, fmt), ha="center", va="center", color="white" if dark else "black")

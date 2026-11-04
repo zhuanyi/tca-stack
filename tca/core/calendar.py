@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, date, datetime, time, timedelta
+from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -49,6 +50,7 @@ def _observed(d: date) -> date | None:
     return d + timedelta(days=1) if d.weekday() == 6 else d
 
 
+@lru_cache(maxsize=32)
 def _closures(year: int) -> frozenset[date]:
     fixed = [date(year, 1, 1), date(year, 6, 19), date(year, 7, 4), date(year, 11, 11)]
     fixed.append(date(year, 12, 25))
@@ -99,7 +101,9 @@ def load_events(path: Path) -> pd.DataFrame:
     ``source`` are optional per event.
     """
     raw = yaml.safe_load(Path(path).read_text())
-    rows = raw["events"] if isinstance(raw, dict) else raw
+    rows = raw.get("events") if isinstance(raw, dict) else raw
+    if not rows:
+        raise ValueError(f"event calendar {path} holds no events")
     df = pd.DataFrame(rows).reindex(columns=_EVENT_COLUMNS)
     df["ts_utc"] = pd.to_datetime(df["ts_utc"], utc=True).astype("datetime64[us, UTC]")
     return df.sort_values("ts_utc", kind="stable").reset_index(drop=True)
