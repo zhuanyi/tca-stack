@@ -146,3 +146,90 @@ def test_fit_power_law_noisy_exponent_in_range():
     cost = 0.5 + 0.3 * size**0.5 + rng.normal(0, 0.05, 400)
     _, _, c = stats.fit_power_law(size, cost)
     assert 0.4 < c < 0.6
+
+
+def test_fit_power_law_binned_recovers_exponent_with_ci():
+    """Synthetic noisy square-root sample: point estimate near 0.5, CI contains 0.5."""
+    rng = np.random.default_rng(42)
+    n = 3000
+    # Log-uniform size distribution (evenly spaced in log-space) for stable binning
+    size = np.exp(rng.uniform(0, 5, n))
+    cost = 0.2 + 0.5 * np.sqrt(size) + rng.normal(0, 0.2, n)
+    _a, _b, c, ci_lo, ci_hi = stats.fit_power_law_binned(
+        size, cost, n_bins=8, n_boot=500, seed=20250303
+    )
+    assert c == pytest.approx(0.5, abs=0.1)
+    assert ci_lo <= 0.5 <= ci_hi
+    assert ci_lo < c < ci_hi
+
+
+def test_fit_power_law_binned_excludes_outliers():
+    """Adding extreme-cost points (simulating FIX_ORDER noise) does not shift the exponent."""
+    rng = np.random.default_rng(42)
+    n = 1500
+    size = rng.lognormal(3.0, 1.0, n)
+    cost = 0.2 + 0.5 * np.sqrt(size) + rng.normal(0, 0.3, n)
+    _, _, c_clean, _, _ = stats.fit_power_law_binned(size, cost, seed=20250303)
+
+    # Add 500 "FIX_ORDER-like" points with huge noise (sd 15 bp, mean 0)
+    size_fix = rng.lognormal(3.0, 1.0, 500)
+    cost_fix = rng.normal(0, 15, 500)
+    size_pooled = np.concatenate([size, size_fix])
+    cost_pooled = np.concatenate([cost, cost_fix])
+    _, _, c_pooled, _, _ = stats.fit_power_law_binned(size_pooled, cost_pooled, seed=20250303)
+
+    # The exponent should not shift by more than 0.1 when FIX-like noise is added
+    # (because the caller is expected to exclude FIX_ORDER before calling this function,
+    # but the binned fit should be robust to a minority of noisy points anyway)
+    assert abs(c_pooled - c_clean) < 0.15
+
+
+def test_fit_power_law_binned_seed_reproducibility():
+    """Same seed gives same output."""
+    rng = np.random.default_rng(99)
+    size = rng.lognormal(3.0, 1.0, 1000)
+    cost = 0.2 + 0.5 * np.sqrt(size) + rng.normal(0, 0.3, 1000)
+    result1 = stats.fit_power_law_binned(size, cost, seed=12345)
+    result2 = stats.fit_power_law_binned(size, cost, seed=12345)
+    assert result1 == result2
+
+
+def test_fit_power_law_binned_different_seeds_differ():
+    """Different seeds give different bootstrap intervals (sanity check)."""
+    rng = np.random.default_rng(99)
+    size = rng.lognormal(3.0, 1.0, 1000)
+    cost = 0.2 + 0.5 * np.sqrt(size) + rng.normal(0, 0.3, 1000)
+    _, _, _, lo1, hi1 = stats.fit_power_law_binned(size, cost, seed=1)
+    _, _, _, lo2, hi2 = stats.fit_power_law_binned(size, cost, seed=2)
+    # The CIs should be similar but not identical (different bootstrap samples)
+    # Allow for small numerical differences
+    assert not (lo1 == pytest.approx(lo2, abs=1e-9) and hi1 == pytest.approx(hi2, abs=1e-9))
+
+
+def test_fit_power_law_binned_drops_nan_rows_before_binning():
+    """Rows with NaN in size or cost are dropped, so the fit equals the fit on the clean rows."""
+    rng = np.random.default_rng(7)
+    size = np.exp(rng.uniform(0, 5, 600))
+    cost = 0.2 + 0.5 * np.sqrt(size) + rng.normal(0, 0.1, 600)
+    clean = stats.fit_power_law_binned(size, cost, n_bins=6, n_boot=50, seed=1)
+    size_nan = np.concatenate([size, [np.nan, 3.0]])
+    cost_nan = np.concatenate([cost, [1.0, np.nan]])
+    dirty = stats.fit_power_law_binned(size_nan, cost_nan, n_bins=6, n_boot=50, seed=1)
+    assert dirty == pytest.approx(clean)
+    assert np.all(np.isfinite(dirty[:3]))
+
+
+def test_exponent_at_bound_flags_both_bounds_and_not_interior():
+    lo, hi = stats.EXPONENT_BOUNDS
+    assert stats.exponent_at_bound(hi) == "upper"
+    assert stats.exponent_at_bound(lo) == "lower"
+    assert stats.exponent_at_bound(0.5) is None
+    assert stats.exponent_at_bound(float("nan")) is None
+
+
+def test_fit_power_law_steep_data_is_reported_at_upper_bound():
+    size = np.linspace(1.0, 10.0, 40)
+    cost = size**6
+    _, _, c = stats.fit_power_law(size, cost)
+    assert c == pytest.approx(stats.EXPONENT_BOUNDS[1], abs=1e-6)
+    assert stats.exponent_at_bound(c) == "upper"

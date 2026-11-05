@@ -31,6 +31,8 @@ def bootstrap_ci(
     values = np.asarray(x, dtype=float)
     if values.size == 0:
         raise ValueError("bootstrap_ci requires a non-empty sample")
+    if not np.all(np.isfinite(values)):
+        raise ValueError("bootstrap_ci requires finite values; drop NaN and inf first")
     chunk = max(1, _MAX_RESAMPLE_CELLS // len(values))
     if chunk == 1 and len(values) > _MAX_RESAMPLE_CELLS:
         raise ValueError(
@@ -49,9 +51,14 @@ def bootstrap_ci(
     return float(lo), float(hi)
 
 
-def _fit_cluster(model, df: pd.DataFrame, cluster: str):
+def _fit_cluster(model, df: pd.DataFrame, cluster: str, disp: int | None = None):
     groups = df.loc[model.data.row_labels, cluster].to_numpy()
-    return model.fit(cov_type="cluster", cov_kwds={"groups": groups})
+    if pd.isna(groups).any():
+        raise ValueError(f"cluster column {cluster!r} has missing labels in the rows used")
+    kwds = {"cov_type": "cluster", "cov_kwds": {"groups": groups}}
+    if disp is not None:
+        kwds["disp"] = disp
+    return model.fit(**kwds)
 
 
 def ols_cluster(df: pd.DataFrame, formula: str, cluster: str):
@@ -64,7 +71,7 @@ def ols_cluster(df: pd.DataFrame, formula: str, cluster: str):
 
 def logit_cluster(df: pd.DataFrame, formula: str, cluster: str):
     """Logit fit of ``formula`` with standard errors clustered on column ``cluster``."""
-    return _fit_cluster(smf.logit(formula, df), df, cluster)
+    return _fit_cluster(smf.logit(formula, df), df, cluster, disp=0)
 
 
 def tau2_mom(xbar, n, s2) -> float:
@@ -74,6 +81,10 @@ def tau2_mom(xbar, n, s2) -> float:
     the variance of the means less the average sampling variance ``s2 / n``.
     """
     xbar, n, s2 = (np.asarray(a, dtype=float) for a in (xbar, n, s2))
+    if len({a.size for a in (xbar, n, s2) if a.ndim > 0}) > 1:
+        raise ValueError("tau2_mom needs xbar, n and s2 of the same length")
+    if xbar.size < 2:
+        raise ValueError("tau2_mom needs at least two cells")
     return float(max(0.0, np.var(xbar, ddof=1) - np.mean(s2 / n)))
 
 
@@ -95,6 +106,10 @@ def required_n(delta, sd, power: float = 0.8, alpha: float = 0.05):
 
     ``delta`` and ``sd`` share units; uses the normal approximation and rounds up.
     """
+    if np.any(np.asarray(delta) == 0):
+        raise ValueError("delta must be non-zero")
+    if np.any(np.asarray(sd) < 0):
+        raise ValueError("sd must be non-negative")
     z = sp_stats.norm.ppf(1 - alpha / 2) + sp_stats.norm.ppf(power)
     n = np.ceil(2.0 * (z * np.asarray(sd) / np.asarray(delta)) ** 2)
     return int(n) if np.ndim(n) == 0 else n.astype(int)
@@ -110,13 +125,42 @@ def expected_max_normal(n: int) -> float:
     return float(value)
 
 
+EXPONENT_BOUNDS = (0.01, 3.0)
+
+
+def exponent_at_bound(c: float, rel_tol: float = 1e-3) -> str | None:
+    """Return ``"lower"`` or ``"upper"`` when a fitted exponent sits at a fit bound, else ``None``.
+
+    An exponent within ``rel_tol`` of the span of ``EXPONENT_BOUNDS`` from a bound is treated as
+    at the bound: the optimiser stopped at the constraint, so the value is not an estimate.
+    """
+    lo, hi = EXPONENT_BOUNDS
+    tol = rel_tol * (hi - lo)
+    if not np.isfinite(c):
+        return None
+    if c <= lo + tol:
+        return "lower"
+    if c >= hi - tol:
+        return "upper"
+    return None
+
+
 def fit_power_law(size, cost) -> tuple[float, float, float]:
     """Least-squares fit of ``cost = a + b * size**c``; returns ``(a, b, c)``.
 
-    The exponent is bounded to [0.01, 3]; ``size`` and ``cost`` share the units of the caller.
+    The exponent is bounded to ``EXPONENT_BOUNDS`` = [0.01, 3]; ``size`` and ``cost`` share the
+    units of the caller.
     """
     s = np.asarray(size, dtype=float)
     y = np.asarray(cost, dtype=float)
+    if s.shape != y.shape:
+        raise ValueError("size and cost must have the same length")
+    if s.size < 3:
+        raise ValueError("fit_power_law needs at least 3 points")
+    if not (np.all(np.isfinite(s)) and np.all(np.isfinite(y))):
+        raise ValueError("size and cost must be finite")
+    if np.any(s <= 0):
+        raise ValueError("size must be strictly positive")
     scale = s.max()
     u = s / scale
 
@@ -129,7 +173,69 @@ def fit_power_law(size, cost) -> tuple[float, float, float]:
         u,
         y,
         p0=(float(y.min()), span, 0.5),
-        bounds=([-np.inf, -np.inf, 0.01], [np.inf, np.inf, 3.0]),
+        bounds=([-np.inf, -np.inf, EXPONENT_BOUNDS[0]], [np.inf, np.inf, EXPONENT_BOUNDS[1]]),
         maxfev=20_000,
     )
     return float(a), float(b_scaled / scale**c), float(c)
+
+
+def fit_power_law_binned(
+    size,
+    cost,
+    n_bins: int = 6,
+    n_boot: int = 500,
+    seed: int = 0,
+) -> tuple[float, float, float, float, float]:
+    """Fit ``cost = a + b * size**c`` to binned means and return ``(a, b, c, ci_lo, ci_hi)``.
+
+    The data are grouped into ``n_bins`` equal-count quantile bins; the fit is to the bin medians
+    of ``size`` and means of ``cost``. A percentile bootstrap over ``n_boot`` resamples of the
+    raw ``(size, cost)`` pairs, recomputing the binned means each time with the original bin
+    edges, gives a 95% interval for the exponent ``c``. ``seed`` fixes the RNG for repeatability.
+    Pairs with a non-finite ``size`` or ``cost`` are dropped before binning.
+    """
+    s = np.asarray(size, dtype=float)
+    y = np.asarray(cost, dtype=float)
+    if s.shape != y.shape:
+        raise ValueError("size and cost must have the same length")
+    keep = np.isfinite(s) & np.isfinite(y)
+    s, y = s[keep], y[keep]
+    if len(s) < n_bins:
+        raise ValueError(f"need at least n_bins={n_bins} points, got {len(s)}")
+
+    # Original bin edges (quantiles of size).
+    quantiles = np.quantile(s, np.linspace(0, 1, n_bins + 1))
+    edges = np.unique(quantiles)
+    if len(edges) < 2:
+        raise ValueError("size has no variation; cannot bin")
+
+    def _binned_fit(s_arr: np.ndarray, y_arr: np.ndarray) -> tuple[float, float, float]:
+        # Assign to the original edges; drop empty bins.
+        idx = np.searchsorted(edges[1:-1], s_arr, side="right")
+        bin_medians = []
+        bin_means = []
+        for b in range(len(edges) - 1):
+            mask = idx == b
+            if mask.sum() > 0:
+                bin_medians.append(float(np.median(s_arr[mask])))
+                bin_means.append(float(np.mean(y_arr[mask])))
+        if len(bin_medians) < 3:
+            return (float("nan"), float("nan"), float("nan"))
+        return fit_power_law(np.array(bin_medians), np.array(bin_means))
+
+    a, b, c = _binned_fit(s, y)
+
+    rng = np.random.default_rng(seed)
+    exponents = []
+    for _ in range(n_boot):
+        i = rng.integers(0, len(s), len(s))
+        _, _, c_boot = _binned_fit(s[i], y[i])
+        if not np.isnan(c_boot):
+            exponents.append(c_boot)
+
+    if len(exponents) < int(0.9 * n_boot):
+        ci_lo, ci_hi = float("nan"), float("nan")
+    else:
+        ci_lo, ci_hi = (float(v) for v in np.quantile(exponents, [0.025, 0.975]))
+
+    return float(a), float(b), float(c), ci_lo, ci_hi

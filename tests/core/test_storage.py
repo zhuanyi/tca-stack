@@ -215,6 +215,12 @@ def test_build_duckdb_atomic_no_partial_on_failure(tmp_path):
     assert db_path.read_bytes() == old_bytes
 
 
+def test_build_duckdb_none_derived_with_no_data_dir_raises_file_not_found(tmp_path, monkeypatch):
+    monkeypatch.setenv("TCA_DATA_DIR", str(tmp_path))
+    with pytest.raises(FileNotFoundError):
+        storage.build_duckdb(None, tmp_path / "tca.duckdb")
+
+
 def test_build_duckdb_rejects_invalid_table_names(tmp_path):
     derived = tmp_path / "derived"
     derived.mkdir(parents=True, exist_ok=True)

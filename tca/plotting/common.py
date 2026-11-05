@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from tca.core.stats import bootstrap_ci, fit_power_law
+from tca.core.stats import bootstrap_ci, exponent_at_bound, fit_power_law_binned
 from tca.plotting.style import PALETTE
 
 
@@ -59,12 +59,14 @@ def binned_means(x, y, bins, rng: np.random.Generator | None = None) -> pd.DataF
 
 
 def cost_vs_size(
-    ax, size, cost, n_bins: int = 10, rng: np.random.Generator | None = None
-) -> tuple[float, float, float]:
+    ax, size, cost, n_bins: int = 10, rng: np.random.Generator | None = None, seed: int = 0
+) -> tuple[float, float, float, float, float]:
     """Binned mean cost against size on a log x-axis with the fitted ``a + b * size**c`` overlaid.
 
-    Draws means with 95% intervals, prints the fitted exponent ``c`` on the axes and returns
-    ``(a, b, c)``.
+    Draws means with 95% intervals and the curve across the bin-mean range only (none when the
+    fit is at a bound), prints the fitted exponent ``c`` with its bootstrap 95% CI
+    on the axes and returns ``(a, b, c, ci_lo, ci_hi)``. The fit is to the binned means,
+    not the raw points; the bootstrap resamples parents and refits the binned means.
     """
     size = np.asarray(size, dtype=float)
     cost = np.asarray(cost, dtype=float)
@@ -78,18 +80,30 @@ def cost_vs_size(
         capsize=3,
         label="Bin mean, 95% CI",
     )
-    a, b, c = fit_power_law(size, cost)
+    a, b, c, ci_lo, ci_hi = fit_power_law_binned(size, cost, n_bins=n_bins, seed=seed)
     lo, hi = float(size.min()), float(size.max())
     if lo <= 0 or hi <= 0 or lo >= hi:
         raise ValueError(
             f"cost_vs_size requires strictly positive sizes with min < max; got [{lo}, {hi}]"
         )
-    grid = np.geomspace(lo, hi, 200)
-    ax.plot(grid, a + b * grid**c, color=PALETTE[3], label=f"Fit a + b·size^c, c = {c:.2f}")
+    side = exponent_at_bound(c)
+    if side is None:
+        label = f"Fit a + b·size^c, c = {c:.2f}"
+        note = f"c = {c:.2f} [{ci_lo:.2f}, {ci_hi:.2f}]"
+        x_lo, x_hi = float(table["x_mid"].min()), float(table["x_mid"].max())
+        if x_lo < x_hi:
+            grid = np.geomspace(x_lo, x_hi, 200)
+            ax.plot(grid, a + b * grid**c, color=PALETTE[3], label=label)
+    else:
+        # A fit at a bound is not identified, so its curve is not drawn.
+        note = (
+            f"c at {side} fit bound ({c:.2f}), not identified\n"
+            f"95% interval [{ci_lo:.2f}, {ci_hi:.2f}]"
+        )
     ax.set_xscale("log")
-    ax.text(0.03, 0.95, f"exponent c = {c:.2f}", transform=ax.transAxes, va="top")
-    ax.legend(loc="lower right")
-    return a, b, c
+    ax.text(0.03, 0.95, note, transform=ax.transAxes, va="top")
+    ax.legend(loc="best", fontsize=9)
+    return a, b, c, ci_lo, ci_hi
 
 
 def markout_curve(ax, horizons_s, mean, lo, hi, label: str, color: str) -> None:

@@ -42,12 +42,16 @@ class ImpactState:
         return 0.5 ** ((t_s - self._t_s) / self.half_life_s)
 
     def _check(self, t_s) -> None:
+        if not np.all(np.isfinite(t_s)):
+            raise ValueError("time must be finite")
         if np.any(np.asarray(t_s) < self._t_s):
             raise ValueError(f"time is earlier than the last update at {self._t_s}")
 
     def add(self, t_s: float, signed_impact: float) -> None:
         """Record an impact of ``signed_impact`` (price units) at time ``t_s`` seconds."""
         self._check(t_s)
+        if not np.isfinite(signed_impact):
+            raise ValueError("signed_impact must be finite")
         if not self._initialised:
             self._t_s = float(t_s)
             self._initialised = True
@@ -56,6 +60,22 @@ class ImpactState:
         )
         self._permanent += self.perm_frac * signed_impact
         self._t_s = float(t_s)
+
+    @property
+    def permanent(self) -> float:
+        """Permanent component of the impact in price units."""
+        return self._permanent
+
+    def transient(self, t_s: float) -> float:
+        """Transient component at ``t_s``, which must not precede the last ``add``."""
+        self._check(t_s)
+        return self._transient * float(self._decay(t_s))
+
+    def transient_at(self, t_s: np.ndarray) -> np.ndarray:
+        """Transient component at each time in ``t_s``, assuming no further ``add``."""
+        t = np.asarray(t_s, dtype=float)
+        self._check(t)
+        return self._transient * self._decay(t)
 
     def value(self, t_s: float) -> float:
         """Total impact in price units at ``t_s``, which must not precede the last ``add``."""

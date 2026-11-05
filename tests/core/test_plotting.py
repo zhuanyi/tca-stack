@@ -77,12 +77,16 @@ def test_binned_means_with_explicit_edges():
 
 
 def test_cost_vs_size_recovers_square_root_exponent(rng):
-    size = rng.lognormal(3.0, 1.0, 5000)
-    cost = 0.2 + 0.5 * np.sqrt(size) + rng.normal(0, 0.5, 5000)
+    # Log-uniform size distribution for stable binning
+    size = np.exp(rng.uniform(0, 5, 5000))
+    cost = 0.2 + 0.5 * np.sqrt(size) + rng.normal(0, 0.2, 5000)
     _, ax = style.figure("t", "s", "src")
-    _, _, c = common.cost_vs_size(ax, size, cost, rng=np.random.default_rng(2))
+    _, _, c, ci_lo, ci_hi = common.cost_vs_size(
+        ax, size, cost, rng=np.random.default_rng(2), seed=2
+    )
     assert ax.get_xscale() == "log"
-    assert c == pytest.approx(0.5, abs=0.08)
+    assert c == pytest.approx(0.5, abs=0.1)
+    assert ci_lo <= 0.5 <= ci_hi
     assert any(f"c = {c:.2f}" in t.get_text() for t in ax.texts)
 
 
@@ -106,7 +110,7 @@ def test_binned_means_drops_nan_rows():
 
 def test_cost_vs_size_rejects_non_positive_sizes():
     _, ax = style.figure("t", "s", "src")
-    with pytest.raises(ValueError, match="strictly positive"):
+    with pytest.raises(ValueError, match=r"need at least|strictly positive"):
         common.cost_vs_size(ax, [0, 1, 2], [1, 2, 3])
 
 
@@ -119,3 +123,46 @@ def test_heatmap_all_nan_does_not_raise():
 def test_apply_idempotent_with_open_figure():
     style.figure("t", "s", "src")
     style.apply()  # should not raise even though a figure exists
+
+
+def test_cost_vs_size_annotates_a_fit_at_the_bound():
+    import matplotlib.pyplot as plt
+
+    size = np.tile(np.linspace(1.0, 10.0, 12), 5)
+    cost = size**6
+    fig, ax = plt.subplots()
+    _, _, c, _, _ = common.cost_vs_size(ax, size, cost, n_bins=6)
+    texts = [t.get_text() for t in ax.texts]
+    labels = [h.get_label() for h in ax.get_lines()]
+    plt.close(fig)
+    assert c == pytest.approx(3.0, abs=1e-6)
+    assert any("upper fit bound" in t and "not identified" in t for t in texts)
+    assert not any(label.startswith("Fit") for label in labels)
+
+
+def test_cost_vs_size_curve_stays_within_bin_means(rng):
+    import matplotlib.pyplot as plt
+
+    size = rng.uniform(1.0, 100.0, 400)
+    cost = 0.5 + 0.2 * size**0.5 + rng.normal(0, 0.05, 400)
+    fig, ax = plt.subplots()
+    common.cost_vs_size(ax, size, cost, n_bins=6)
+    table = common.binned_means(size, cost, 6)
+    curves = [ln for ln in ax.get_lines() if ln.get_label().startswith("Fit")]
+    xs = np.asarray(curves[0].get_xdata(), dtype=float)
+    plt.close(fig)
+    assert len(curves) == 1
+    assert xs.min() >= table["x_mid"].min() - 1e-9
+    assert xs.max() <= table["x_mid"].max() + 1e-9
+
+
+def test_cost_vs_size_interior_fit_is_not_flagged(rng):
+    import matplotlib.pyplot as plt
+
+    size = rng.uniform(1.0, 100.0, 400)
+    cost = 0.5 + 0.2 * size**0.5 + rng.normal(0, 0.05, 400)
+    fig, ax = plt.subplots()
+    common.cost_vs_size(ax, size, cost, n_bins=6)
+    texts = [t.get_text() for t in ax.texts]
+    plt.close(fig)
+    assert not any("bound" in t for t in texts)

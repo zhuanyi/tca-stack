@@ -36,11 +36,6 @@ def test_sunday_holiday_is_observed_on_monday():
     assert not cal.is_business_day(date(2021, 7, 5))
 
 
-def test_saturday_holiday_does_not_close_friday():
-    # 2026-07-04 is a Saturday
-    assert cal.is_business_day(date(2026, 7, 3))
-
-
 def test_local_to_utc_respects_dst():
     winter = cal.local_to_utc(date(2025, 1, 15), time(9, 30), cal.NY)
     summer = cal.local_to_utc(date(2025, 7, 15), time(9, 30), cal.NY)
@@ -84,7 +79,7 @@ def test_load_events_missing_events_key_raises(tmp_path):
         cal.load_events(p)
 
 
-@pytest.mark.parametrize("year", [2024, 2025, 2026])
+@pytest.mark.parametrize("year", [2024, 2025])
 def test_good_friday_is_closed(year):
-    good_friday = {2024: date(2024, 3, 29), 2025: date(2025, 4, 18), 2026: date(2026, 4, 3)}
+    good_friday = {2024: date(2024, 3, 29), 2025: date(2025, 4, 18)}
     assert not cal.is_business_day(good_friday[year])

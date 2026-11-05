@@ -16,6 +16,11 @@ LONDON = ZoneInfo("Europe/London")
 _WMR_START = time(15, 57, 30)
 _WMR_END = time(16, 2, 30)
 _EXTRA_CLOSURES = frozenset({date(2025, 1, 9)})
+_JUNETEENTH_FIRST_YEAR = 2022
+# Good Friday dates on which SIFMA recommended a noon early close instead of a full close
+# (a jobs report is released that day). Settlement is not recommended on these dates.
+# Other years are added only when read from a SIFMA release.
+_GOOD_FRIDAY_EARLY_CLOSE = frozenset({date(2026, 4, 3)})
 _EVENT_COLUMNS = ["ts_utc", "type", "tenor", "source"]
 
 
@@ -44,21 +49,30 @@ def _easter(year: int) -> date:
 
 
 def _observed(d: date) -> date | None:
-    """Closure date for a fixed-date holiday: Sunday moves to Monday, Saturday has no closure."""
+    """Closure date for a fixed-date holiday under SIFMA practice.
+
+    A Sunday holiday closes the Monday and a Saturday holiday closes the Friday. A Saturday
+    New Year's Day has no full close: the Friday 31 December before it is an early close.
+    """
+    if d.weekday() == 6:
+        return d + timedelta(days=1)
     if d.weekday() == 5:
-        return None
-    return d + timedelta(days=1) if d.weekday() == 6 else d
+        return None if (d.month, d.day) == (1, 1) else d - timedelta(days=1)
+    return d
 
 
 @lru_cache(maxsize=32)
 def _closures(year: int) -> frozenset[date]:
-    fixed = [date(year, 1, 1), date(year, 6, 19), date(year, 7, 4), date(year, 11, 11)]
-    fixed.append(date(year, 12, 25))
+    fixed = [date(year, 1, 1), date(year, 7, 4), date(year, 11, 11), date(year, 12, 25)]
+    if year >= _JUNETEENTH_FIRST_YEAR:
+        fixed.append(date(year, 6, 19))
     days = {o for d in fixed if (o := _observed(d)) is not None}
+    good_friday = _easter(year) - timedelta(days=2)
+    if good_friday not in _GOOD_FRIDAY_EARLY_CLOSE:
+        days.add(good_friday)
     days |= {
         _nth_weekday(year, 1, 0, 3),
         _nth_weekday(year, 2, 0, 3),
-        _easter(year) - timedelta(days=2),
         _last_weekday(year, 5, 0),
         _nth_weekday(year, 9, 0, 1),
         _nth_weekday(year, 10, 0, 2),
@@ -70,12 +84,37 @@ def _closures(year: int) -> frozenset[date]:
 def is_business_day(d: date) -> bool:
     """True when ``d`` is a weekday not in the US bond-market full-day closure list.
 
-    Closures follow the SIFMA recommended full-day holidays: New Year's Day, Martin Luther King Jr.
-    Day, Presidents' Day, Good Friday, Memorial Day, Juneteenth, Independence Day, Labor Day,
-    Columbus Day, Veterans Day, Thanksgiving and Christmas, with a Sunday holiday observed on the
-    Monday. The national day of mourning on 2025-01-09 is included.
+    Closures follow the SIFMA recommended full-day holidays: weekends + SIFMA full-day US closures
+    (New Year's Day, Martin Luther King Jr. Day, Presidents' Day, Good Friday, Memorial Day,
+    Juneteenth from 2022, Independence Day, Labor Day, Columbus Day, Veterans Day, Thanksgiving
+    and Christmas), with a Sunday holiday observed on the Monday and a Saturday holiday observed
+    on the Friday (except a Saturday New Year, which has no full close). The national day of
+    mourning on 2025-01-09 is included.
     """
     return d.weekday() < 5 and d not in _closures(d.year)
+
+
+def is_early_close(d: date) -> bool:
+    """True for a business day on which SIFMA recommends an early close.
+
+    Covers only the cases this library models: a Good Friday early close listed in
+    ``_GOOD_FRIDAY_EARLY_CLOSE`` and 31 December before a Saturday New Year's Day. It is not a
+    general early-close calendar.
+    """
+    if not is_business_day(d):
+        return False
+    return d in _GOOD_FRIDAY_EARLY_CLOSE or (
+        (d.month, d.day) == (12, 31) and date(d.year + 1, 1, 1).weekday() == 5
+    )
+
+
+def is_settlement_day(d: date) -> bool:
+    """True when secondary-market Treasury trades may settle on ``d``.
+
+    A business day, except Good Friday dates in ``_GOOD_FRIDAY_EARLY_CLOSE`` where SIFMA
+    recommends against settlement. An early close does not otherwise affect settlement.
+    """
+    return is_business_day(d) and d not in _GOOD_FRIDAY_EARLY_CLOSE
 
 
 def business_days(start: date, end: date) -> list[date]:
@@ -105,5 +144,9 @@ def load_events(path: Path) -> pd.DataFrame:
     if not rows:
         raise ValueError(f"event calendar {path} holds no events")
     df = pd.DataFrame(rows).reindex(columns=_EVENT_COLUMNS)
-    df["ts_utc"] = pd.to_datetime(df["ts_utc"], utc=True).astype("datetime64[us, UTC]")
+    stamps = [pd.Timestamp(v) for v in df["ts_utc"]]
+    for ts, v in zip(stamps, df["ts_utc"], strict=True):
+        if ts.tzinfo is None:
+            raise ValueError(f"event timestamp {v!r} has no timezone offset; add Z or an offset")
+    df["ts_utc"] = pd.to_datetime(stamps, utc=True).astype("datetime64[us, UTC]")
     return df.sort_values("ts_utc", kind="stable").reset_index(drop=True)

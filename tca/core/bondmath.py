@@ -13,7 +13,7 @@ from datetime import date, timedelta
 
 import numpy as np
 
-from tca.core.calendar import is_business_day
+from tca.core.calendar import is_business_day, is_settlement_day
 
 _BUMP = 0.5e-4
 _NEWTON_TOL = 1e-13
@@ -21,18 +21,25 @@ _NEWTON_MAX_ITER = 100
 
 
 def settle_date(trade_date: date) -> date:
-    """Regular-way Treasury settlement: the next business day after ``trade_date`` (T+1)."""
-    d = trade_date + timedelta(days=1)
-    while not is_business_day(d):
+    """Regular-way Treasury settlement: the next settlement day after ``trade_date`` (T+1).
+
+    A trade entered on a business day that is not a settlement day (Good Friday 2026-04-03)
+    settles T+2, the second settlement day after it, as SIFMA recommends.
+    """
+    steps = 2 if is_business_day(trade_date) and not is_settlement_day(trade_date) else 1
+    d = trade_date
+    while steps:
         d += timedelta(days=1)
+        steps -= is_settlement_day(d)
     return d
 
 
-def _add_months(d: date, months: int, day: int) -> date:
-    """Shift ``d`` by whole months, placing the result on ``day`` or the month end if shorter."""
+def _add_months(d: date, months: int, day: int, eom: bool = False) -> date:
+    """Shift ``d`` by whole months onto ``day``, or the month end if shorter or ``eom`` is set."""
     index = d.year * 12 + d.month - 1 + months
     year, month = divmod(index, 12)
-    return date(year, month + 1, min(day, _calendar.monthrange(year, month + 1)[1]))
+    last = _calendar.monthrange(year, month + 1)[1]
+    return date(year, month + 1, last if eom else min(day, last))
 
 
 def _coupon_period(maturity: date, settle: date) -> tuple[date, date, int]:
@@ -43,11 +50,12 @@ def _coupon_period(maturity: date, settle: date) -> tuple[date, date, int]:
     """
     if settle >= maturity:
         raise ValueError(f"settle {settle} must be before maturity {maturity}")
+    eom = maturity.day == _calendar.monthrange(maturity.year, maturity.month)[1]
     k = 0
-    while _add_months(maturity, -6 * (k + 1), maturity.day) > settle:
+    while _add_months(maturity, -6 * (k + 1), maturity.day, eom) > settle:
         k += 1
-    nxt = _add_months(maturity, -6 * k, maturity.day)
-    prev = _add_months(maturity, -6 * (k + 1), maturity.day)
+    nxt = _add_months(maturity, -6 * k, maturity.day, eom)
+    prev = _add_months(maturity, -6 * (k + 1), maturity.day, eom)
     return prev, nxt, k + 1
 
 
@@ -67,13 +75,18 @@ def _dirty_price(coupon: float, maturity: date, settle: date, yld):
     """Full price in points per 100 face, summing the coupons as a geometric series."""
     w, n = _period_fraction(maturity, settle)
     y = np.asarray(yld, dtype=float)
+    if np.any(y <= -2.0):
+        raise ValueError("yield must be greater than -2 (200%)")
     half_coupon = 100.0 * coupon / 2.0
     if n == 1:
         return (100.0 + half_coupon) / (1.0 + w * y / 2.0)
-    v = 1.0 / (1.0 + y / 2.0)
-    vn = v**n
+    x = y / 2.0
+    v = 1.0 / (1.0 + x)
+    small = np.abs(x) < 1e-8
+    safe_x = np.where(small, 1.0, x)
     with np.errstate(divide="ignore", invalid="ignore"):
-        annuity = np.where(y == 0.0, float(n), (1.0 - vn) / (1.0 - v))
+        closed = -np.expm1(-n * np.log1p(safe_x)) * (1.0 + safe_x) / safe_x
+    annuity = np.where(small, n - x * n * (n - 1) / 2.0, closed)
     return v**w * (half_coupon * annuity + 100.0 * v ** (n - 1))
 
 
@@ -93,6 +106,8 @@ def yield_from_price(coupon: float, maturity: date, settle: date, clean_px):
     Solved by Newton iteration with a central-difference slope, to better than 1e-12.
     """
     px = np.asarray(clean_px, dtype=float)
+    if not np.all(np.isfinite(px)) or np.any(px <= 0):
+        raise ValueError("clean_px must be finite and positive")
     y = np.full(px.shape, coupon if coupon > 0 else 0.03)
     for _ in range(_NEWTON_MAX_ITER):
         f = price_from_yield(coupon, maturity, settle, y) - px
@@ -117,22 +132,54 @@ def dv01(coupon: float, maturity: date, settle: date, yld, face: float = 1_000_0
     return _scalar_if_scalar((down - up) / 100.0 * face, yld)
 
 
-def format_32nds(price: float) -> str:
-    """Format points as ``handle-32nds``, ``+`` marking a half: 99.515625 is ``99-16+``.
+def format_32nds(price: float, *, exact: bool = True) -> str:
+    """Format points as ``handle-32nds``: 99.515625 is ``99-16+``, 99.5078125 is ``99-162``.
 
-    Uses half-up rounding (``floor(price * 64 + 0.5)``) rather than banker's rounding so the
-    output is deterministic near 32nd boundaries.
+    A half 32nd is ``+``; other ticks of 1/256 are one trailing digit counting eighths of a
+    32nd (``99-162`` is 16 and a quarter). With ``exact=True`` a price off the 1/256 grid
+    raises ``ValueError``; ``exact=False`` rounds half-up to the nearest half 32nd, so any
+    fraction finer than the eighth digit (and any eighth that is not a half) is dropped. A
+    non-finite price (nan or inf) raises ``ValueError``.
     """
-    halves = math.floor(price * 64 + 0.5)
-    handle, rem = divmod(halves, 64)
-    thirty_seconds, half = divmod(rem, 2)
-    return f"{handle}-{thirty_seconds:02d}{'+' if half else ''}"
+    if not math.isfinite(price):
+        raise ValueError(f"price {price!r} is not finite")
+    if not exact:
+        halves = math.floor(price * 64 + 0.5)
+        handle, rem = divmod(halves, 64)
+        thirty_seconds, half = divmod(rem, 2)
+        return f"{handle}-{thirty_seconds:02d}{'+' if half else ''}"
+    ticks = round(price * 256)
+    if abs(price * 256 - ticks) > 1e-6:
+        raise ValueError(
+            f"price {price!r} is not on the 1/256 grid; pass exact=False to round to a half 32nd"
+        )
+    handle, rem = divmod(ticks, 256)
+    thirty_seconds, eighths = divmod(rem, 8)
+    suffix = "+" if eighths == 4 else (str(eighths) if eighths else "")
+    return f"{handle}-{thirty_seconds:02d}{suffix}"
 
 
 def parse_32nds(text: str) -> float:
-    """Parse ``handle-32nds`` text, with an optional trailing ``+`` for a half, into points."""
+    """Parse ``handle-32nds`` text into points; the fraction is ``NN``, ``NN+`` or ``NNd``.
+
+    ``NN`` is whole 32nds (00 to 31), ``+`` a half and a trailing digit ``d`` (1 to 7) eighths of a
+    32nd, so ``99-162`` is 16 and a quarter.
+    """
     handle, sep, frac = text.strip().partition("-")
-    if not sep or not handle.isdigit() or not frac.rstrip("+").isdigit():
-        raise ValueError(f"invalid 32nds price {text!r}; expected 'handle-32nds[+]'")
-    half = frac.endswith("+")
-    return int(handle) + (int(frac.rstrip("+")) + 0.5 * half) / 32.0
+    err = ValueError(
+        f"invalid 32nds price {text!r}; expected 'handle-NN', 'handle-NN+' or 'handle-NNd'"
+    )
+    if not sep or not handle.isdigit() or len(frac) not in (2, 3) or not frac[:2].isdigit():
+        raise err
+    thirty_seconds, tail = int(frac[:2]), frac[2:]
+    if thirty_seconds > 31:
+        raise err
+    if tail == "+":
+        eighths = 4
+    elif tail == "":
+        eighths = 0
+    elif tail in "1234567":
+        eighths = int(tail)
+    else:
+        raise err
+    return int(handle) + (thirty_seconds + eighths / 8.0) / 32.0

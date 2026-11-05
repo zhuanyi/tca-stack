@@ -54,7 +54,10 @@ def _normalise_timestamps(df: pd.DataFrame) -> pd.DataFrame:
         dtype = out[col].dtype
         if not pd.api.types.is_datetime64_any_dtype(dtype):
             continue
-        if getattr(dtype, "tz", None) is None:
+        tz = getattr(dtype, "tz", None) or getattr(
+            getattr(dtype, "pyarrow_dtype", None), "tz", None
+        )
+        if tz is None:
             raise ValueError(f"column {col!r} holds naive timestamps; localise to UTC first")
         out[col] = out[col].dt.tz_convert("UTC").astype(_UTC_US)
     return out
@@ -182,7 +185,10 @@ def build_duckdb(derived: Path | None = None, db_path: Path | None = None) -> di
     only after every table has been created, so a mid-build failure never destroys the
     previous good database.
     """
-    files = _table_files(_derived(derived))
+    root = _derived(derived)
+    if not root.is_dir():
+        raise FileNotFoundError(f"derived folder {root} does not exist or is not a folder")
+    files = _table_files(root)
     check_folder_size(derived)
     target = Path(db_path) if db_path is not None else data_dir() / "tca.duckdb"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -199,6 +205,7 @@ def build_duckdb(derived: Path | None = None, db_path: Path | None = None) -> di
                 listing = ", ".join("'" + str(p).replace("'", "''") + "'" for p in paths)
                 con.execute(f'CREATE TABLE "{safe}" AS SELECT * FROM read_parquet([{listing}])')
                 counts[name] = con.execute(f'SELECT count(*) FROM "{safe}"').fetchone()[0]
+        target.with_name(target.name + ".wal").unlink(missing_ok=True)
         os.replace(tmp_path, target)
     except BaseException:
         tmp_path.unlink(missing_ok=True)

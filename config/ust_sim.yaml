@@ -1,0 +1,283 @@
+# Module 1 simulator parameters.
+#
+# Every parameter line ends with a status tag:
+#   [READ]        a number read from a public source (URL in the section header above it, date read 2026-11-03)
+#   [DERIVED]     computed from READ numbers or from the downloaded public data (formula stated)
+#   [ASSUMPTION]  a modelling choice with no public number behind it
+# Number tags are counted by docs/ust_calibration.md. Where a Fleming (NY Fed) chart value is
+# approximate, the section header gives the reading tolerance; it is still a reading, not a guess.
+# Dealers: only the RANGES the 12 dealers' attributes are drawn from live here; the draw is done
+# by the simulator with `seed` and written to ust_dealers.
+
+seed: 20250303                       # [ASSUMPTION] project seed
+period: {start: 2025-03-03, end: 2025-05-30}   # [ASSUMPTION]
+events_file: config/events_2025.yaml           # [ASSUMPTION] release / FOMC calendar, see that file
+leakage_scale: 1.0                   # [ASSUMPTION] multiplier on every leakage hedge (a sweep parameter)
+competition_widening_scale: 1.0      # [ASSUMPTION] multiplier on dealers' competition_widening (a sweep parameter)
+
+ci_days: 3                           # [ASSUMPTION] business days simulated under TCA_PROFILE=ci
+
+# --------------------------------------------------------------------------------------------------
+# 4.1 Time grid
+# Source: simulation design (Fleming measures NY hours as 7:00-17:00 in the 2024
+# post, 7:30-17:00 in the 2025 posts). Business-day list: tca/core/calendar.py (SIFMA 2025).
+time_grid:
+  tz: America/New_York               # [ASSUMPTION]
+  start: "07:00"                     # [ASSUMPTION]
+  end: "17:00"                       # [ASSUMPTION]
+  step_s: 1                          # [ASSUMPTION]
+
+# --------------------------------------------------------------------------------------------------
+# 4.2 Yield level process
+# Anchors: US Treasury daily par yield curve (https://home.treasury.gov/resource-center/data-chart-center/interest-rates/daily-treasury-rates.csv/2025/all?type=daily_treasury_yield_curve&field_tdr_date_value=2025&page&_format=csv),
+# cached by scripts/fetch_ust_anchors.py as par_yield_window.csv; read 2026-11-03.
+# The weights below are model assumptions: no public source gives an intraday variance profile.
+yield_process:
+  anchor_tenors_y: [2, 3, 5, 7, 10, 20, 30]      # [ASSUMPTION] par curve points used
+  variance_weight:
+    baseline_points:                 # [ASSUMPTION] U-shape, (time NY, weight), linear between points
+      - ["07:00", 1.4]
+      - ["11:30", 0.7]
+      - ["16:00", 1.2]
+    after_16:00: 0.6                 # [ASSUMPTION]
+    bump_halfwidth_s: 90             # [ASSUMPTION] Gaussian half-width
+    bump_data_release: {time: "08:30", height: 8.0}   # [ASSUMPTION] on NFP and CPI days
+    bump_auction_auctioned_tenor: {offset_s_after_close: 60, height: 5.0}   # [ASSUMPTION] auction close time comes from TreasuryDirect data; result about 1 minute later
+    bump_auction_other_tenors: {offset_s_after_close: 60, height: 2.0}      # [ASSUMPTION]
+    bump_fomc: {time: "14:00", height: 10.0}         # [ASSUMPTION] time itself verified on federalreserve.gov, see events_2025.yaml
+    bump_close_marks: {time: "15:00", height: 2.0}   # [ASSUMPTION]
+  regime:
+    window_days: 5                   # [ASSUMPTION] 5-day rolling realised variance
+    reference: period_median         # [ASSUMPTION] divide by the period median of that rolling variance
+    daily_variance_source: anchor_series   # [DERIVED] period realised daily variance of the par-yield changes
+  factors:
+    n: 3                             # [ASSUMPTION] level, slope, curvature
+    method: pca_on_daily_anchor_changes    # [DERIVED] loadings estimated by the simulator from the anchors
+  # Reference values computed by the fetch step's analysis from par_yield_window.csv (63 changes, 2025-03-03..2025-05-30).
+  # They are for tests and docs, not inputs: the simulator re-estimates them.
+  anchor_reference:
+    daily_change_sd_bp: {2: 6.73, 3: 6.98, 5: 6.84, 7: 6.90, 10: 6.26, 20: 5.92, 30: 5.92}   # [DERIVED]
+    pca_explained_variance: [0.8399, 0.1425, 0.0087]   # [DERIVED] PC1 level, PC2 slope, PC3 curvature (cumulative 0.991)
+    rv5_10y_median_bp2: 35.4         # [DERIVED] median of the 5-day mean squared daily 10y change (bp^2)
+    rv5_10y_max_bp2: 120.4           # [DERIVED] reached 2025-04-09, 3.4x the median
+  security_noise:
+    ou_half_life_min: 20             # [ASSUMPTION] placeholder; no public source
+    ou_stationary_sd_bp: 0.3         # [ASSUMPTION] placeholder; no public source
+  off_the_run_yield_spread_bp: {OTR: 0.0, OLD: 1.5, DOUBLE_OLD: 3.0}   # [ASSUMPTION] no public number found; placeholder
+  settlement: {convention: T+1, day_count: actual/actual, coupon_frequency: 2}   # [ASSUMPTION] street convention
+
+# --------------------------------------------------------------------------------------------------
+# 4.3 Composite reference quote (interdealer touch)
+# Source: Michael Fleming, NY Fed Liberty Street Economics,
+#   https://libertystreeteconomics.newyorkfed.org/2025/11/how-has-treasury-market-liquidity-fared-in-2025/  (read 2026-11-03)
+#   https://libertystreeteconomics.newyorkfed.org/2024/09/has-treasury-market-liquidity-improved-in-2024/   (read 2026-11-03; same series, 2019-2024)
+# What was read: 5-day moving averages of BrokerTec on-the-run 2y/5y/10y, chart images viewed.
+#   Bid-ask spread (full spread, 32nds): Mar 2025 level 2y 0.14, 5y 0.27, 10y 0.54 (tolerance +-10%;
+#   2024 post chart gives the same levels in mid-2024). Note the 10y series is on the RIGHT axis (0 to 1).
+#   Check: these are about 1.0-1.1 BrokerTec ticks (2y 1/256, 5y 1/128, 10y 1/64). The simulator's
+#   `half_spread_32nds` is half of the full spread, so hs_base = reading / 2. The earlier placeholders
+#   (0.12/0.19/0.25) read as half-spreads were not consistent with the charts (2y 0.12 is about the FULL 2y spread).
+# 3y, 7y: not in his charts, linear interpolation in tenor between 2y/5y and 5y/10y.
+# 20y, 30y: not in his charts, extrapolated at a constant yield half-spread (about 0.1 bp, which is what the
+#   2y/5y/10y readings imply once multiplied by approximate DV01 per 100 face of 0.019/0.045/0.08).
+composite_quote:
+  hs_base_32nds:                     # half-spread, OTR, interdealer
+    2: 0.07                          # [DERIVED] 0.14 / 2, Fleming 2025 post ch1, tolerance +-10%
+    3: 0.092                         # [DERIVED] interpolated between 2y and 5y (not in Fleming's charts)
+    5: 0.135                         # [DERIVED] 0.27 / 2, Fleming 2025 post ch1, tolerance +-10%
+    7: 0.189                         # [DERIVED] interpolated between 5y and 10y (not in Fleming's charts)
+    10: 0.27                         # [DERIVED] 0.54 / 2, Fleming 2025 post ch1 (right axis), tolerance +-10%
+    20: 0.40                         # [ASSUMPTION] extrapolated at constant ~0.1 bp yield half-spread (not in Fleming's charts)
+    30: 0.50                         # [ASSUMPTION] extrapolated at constant ~0.1 bp yield half-spread (not in Fleming's charts)
+  hs_eps_sd: 0.15                    # [ASSUMPTION] log-normal noise on the half-spread
+  hs_eps_resample_min: 5             # [ASSUMPTION]
+  run_mult: {OTR: 1.0, OLD: 2.5, DOUBLE_OLD: 4.0}   # [ASSUMPTION] no public numeric off-the-run spread found; placeholder
+  tod_mult:                          # [ASSUMPTION] placeholder, no public intraday source
+    - {from: "07:00", to: "08:00", mult: 1.6}
+    - {from: "08:00", to: "08:35", mult: 1.2}
+    - {from: "08:35", to: "15:00", mult: 1.0}
+    - {from: "15:00", to: "16:00", mult: 1.3}
+    - {from: "16:00", to: "17:00", mult: 2.0}
+  # One volatility ratio per day, r = rv_5d / rv_median of the reference tenor, drives three channels,
+  #   spread_mult = r^e_spread, depth_mult = r^e_depth, impact_mult = r^e_impact, each clipped to the range below.
+  # The elasticities are not stored here: tca.ust.calibrate derives them from april_2025_reference at the r of
+  # `matched_on` (e = ln(geometric mean of peak/normal across 2y, 5y, 10y) / ln r).
+  regime_channels:
+    reference_tenor: 10              # [ASSUMPTION] r is the 10y ratio for every tenor (the ratio quoted for the regime episode, about 3.4 at its peak)
+    matched_on: 2025-04-09           # [DERIVED] day whose r the April readings are matched to (the period's maximum r)
+    clip:
+      spread: [0.8, 2.0]             # [ASSUMPTION] bounds on spread_mult
+      depth: [0.25, 1.5]             # [ASSUMPTION] bounds on depth_mult
+      impact: [0.5, 4.0]             # [ASSUMPTION] bounds on impact_mult
+  # Depth at the touch ($mm per side). Fleming: order book depth at the inside tier, averaged over bid and offer,
+  # so it is the best-bid/offer quantity, NOT a sum over several levels; no scaling is applied.
+  # Read (log chart, gridlines at 10 and 100): 2y, 5y, 10y all about 30 in Mar 2025 and mid-2024, tolerance +-30%.
+  # Text cross-check (different period): 5y average bid depth $36.4mm and offer $36.6mm, Jan 2019 to Dec 2023,
+  # https://fraser.stlouisfed.org/files/docs/publications/frbnylse/frbny_libertystreet_20240212.pdf (read 2026-11-03).
+  depth_mm:
+    2: 30                            # [READ] Fleming 2025 post ch2, tolerance +-30%
+    3: 30                            # [DERIVED] interpolated (flat between the 2y and 5y readings)
+    5: 30                            # [READ] Fleming 2025 post ch2, tolerance +-30%
+    7: 30                            # [DERIVED] interpolated (flat between the 5y and 10y readings)
+    10: 30                           # [READ] Fleming 2025 post ch2, tolerance +-30%
+    20: 15                           # [ASSUMPTION] 0.5 x the 10y level; not in Fleming's charts (order of magnitude)
+    30: 12                           # [ASSUMPTION] 0.4 x the 10y level, the ratio of the earlier 30y to 10y placeholders (20 vs 50)
+  depth_scaling: {run_mult_exponent: -1}   # [ASSUMPTION] depth = depth_mm * run_mult^-1 * depth_mult, with the regime channel multiplier
+  # April 2025 episode as read from the same charts (five-day averages, peak or trough around April 9):
+  # use for validating the simulator's April behaviour, NOT as inputs.
+  april_2025_reference:
+    source: "https://libertystreeteconomics.newyorkfed.org/2025/11/how-has-treasury-market-liquidity-fared-in-2025/ (read 2026-11-03)"
+    full_spread_32nds_peak: {2: 0.16, 5: 0.32, 10: 0.62}     # [READ] tolerance +-10% on 2y/5y, +-15% on 10y; about 1.15-1.2x the normal level
+    depth_mm_trough: {2: 12, 5: 9, 10: 12}                    # [READ] tolerance +-35%; about 0.3-0.4x the normal level (NY Fed speech: 10y depth about one quarter of recent levels, https://www.newyorkfed.org/newsevents/speeches/2025/per250509)
+    price_impact_32nds_per_100mm_peak: {2: 0.40, 5: 0.80, 10: 1.55}   # [READ] tolerance +-25%; about 2-2.7x the normal level
+    spec_vol_mult_peak: 1.84             # [DERIVED] the earlier single clip((rv5/median)^0.5) on 2025-04-09 from the 10y anchors, superseded by the regime channels; kept for the comparison in docs/ust.md
+
+# --------------------------------------------------------------------------------------------------
+# 4.4 Impact and leakage
+# Price impact source: same Fleming posts, chart 3 (slope of one-minute price change on one-minute net order flow,
+# 32nds per $100mm). Read (tolerance +-30%, noisy daily series; Mar 2025 / mid-2024 level): 2y 0.15, 5y 0.30,
+# 10y 0.80 (10y is on the RIGHT axis, 0 to 3; the earlier placeholder 0.40 is the 10y reading taken off the left axis).
+# 3y, 7y interpolated; 20y, 30y extrapolated proportionally to DV01 (about 8.5 32nds per $100mm per unit of
+# DV01-per-100-face, the average of the 2y/5y/10y readings), not in his charts.
+# Square-root adaptation: his measure is linear in net flow; I(Q) = PI * (Q/100)^0.5 * vol_mult equals his slope at Q = 100mm.
+impact:
+  price_impact_32nds_per_100mm:
+    2: 0.15                          # [READ] Fleming 2025 post ch3, tolerance +-30%
+    3: 0.20                          # [DERIVED] interpolated between 2y and 5y
+    5: 0.30                          # [READ] Fleming 2025 post ch3, tolerance +-30%
+    7: 0.50                          # [DERIVED] interpolated between 5y and 10y
+    10: 0.80                         # [READ] Fleming 2025 post ch3 (right axis), tolerance +-30%
+    20: 1.10                         # [ASSUMPTION] extrapolated proportionally to DV01; not in Fleming's charts
+    30: 1.40                         # [ASSUMPTION] extrapolated proportionally to DV01; not in Fleming's charts
+  size_exponent: 0.5                 # [ASSUMPTION] square-root law (public evidence is a linear slope on net flow)
+  perm_frac: 0.4                     # [ASSUMPTION] placeholder
+  decay_half_life_min: 10            # [ASSUMPTION] placeholder
+leakage:
+  p_hedge_lose: 0.35                 # [ASSUMPTION] placeholder
+  phi_lose: 0.25                     # [ASSUMPTION] fraction of Q traded by a losing dealer
+  lose_hedge_window_min: [1, 5]      # [ASSUMPTION] uniform spread over the next 1-5 minutes
+  win_hedge_window_min: [5, 30]      # [ASSUMPTION] winner hedges (1 - internalisation) * Q
+  hedge_clips: 3                     # [ASSUMPTION] each hedge is executed as this many equal clips, at independent uniform times in its window; each clip has its own impact
+  # leakage_scale (top of file) multiplies the impact of every hedge clip
+
+# --------------------------------------------------------------------------------------------------
+# 4.5 Dealers: ranges for the seeded draw (the drawn attributes are written by the simulator)
+dealers:
+  n: 12                              # [ASSUMPTION]
+  tier_counts: {1: 4, 2: 5, 3: 3}    # [ASSUMPTION] no public source; 4 / 5 / 3
+  tier_selection_weight: {1: 3.0, 2: 2.0, 3: 1.0}   # [ASSUMPTION] weights of the tier-weighted draw without replacement
+  spread_mult_range: {1: [0.65, 0.90], 2: [0.85, 1.15], 3: [1.10, 1.50]}   # [ASSUMPTION] multiple of the composite half-spread
+  axe_prob_range: [0.10, 0.30]       # [ASSUMPTION] per security per day
+  axe_effect: 0.40                   # [ASSUMPTION] tightens the axed side by 40%, widens the other side by 40%
+  response_prob_base_range: [0.80, 0.98]    # [ASSUMPTION]
+  response_latency_median_s_range: [3, 12]  # [ASSUMPTION] median of a lognormal
+  response_latency_sigma: 0.5        # [ASSUMPTION] no public source
+  no_quote_size_mm_range: [75, 300]  # [ASSUMPTION] no public source; response probability halves above this size
+  internalisation_range: [0.2, 0.7]  # [ASSUMPTION]
+  size_charge_k_range: [0.10, 0.30]  # [ASSUMPTION] 32nds per sqrt($100mm)
+  competition_widening_range: [0.0, 0.03]    # [ASSUMPTION] 32nds per extra dealer beyond 3; this range replaces the earlier 0-0.08, which put the cost minimum at N=3 before any leakage
+  competition_free_dealers: 3        # [ASSUMPTION] widening applies to max(N - 3, 0)
+  inventory:
+    skew_coeff: 0.3                  # [ASSUMPTION] skew = 0.3 * hs * inventory / inventory_scale
+    inventory_scale_mm: 100          # [ASSUMPTION] no public source
+    ou_half_life_min: 120            # [ASSUMPTION] no public source
+    ou_stationary_sd_scale: 1.0      # [ASSUMPTION] stationary sd = 1.0 * inventory_scale_mm
+  quote:
+    noise_sd_hs: 0.2                 # [ASSUMPTION] noise ~ N(0, (0.2 * hs)^2)
+    floor_half_spread_frac: 0.15     # [ASSUMPTION] ask >= mid_eff + 0.15 * hs(t) after all terms, without spread_mult (bid symmetric); an axed dealer can quote well inside the touch
+    tick_denominator: 256            # [ASSUMPTION] asks rounded up, bids rounded down to 1/256 (so rounding cannot break the floor)
+
+# --------------------------------------------------------------------------------------------------
+# 4.6 Client order flow
+# Tenor weights: FINRA TRACE Treasury daily aggregates, dealer-to-customer par value of nominal coupons by
+# remaining-maturity bucket, summed over the period (https://cdn.finra.org/trace/treasury-aggregates/daily/ts-daily-aggregates-YYYY-MM-DD.xlsx,
+# one file per business day; catalogue https://www.finra.org/finra-data/browse-catalog/about-treasury/daily-file; read 2026-11-03).
+# Mapping: <=2y -> 2y, 2-3y -> 3y, 3-5y -> 5y, 5-7y -> 7y, 7-10y -> 10y, 10-20y -> 20y, >20y -> 30y.
+order_flow:
+  parents_per_day_poisson: 55        # [ASSUMPTION] placeholder
+  arrival_mixture:                   # [ASSUMPTION] placeholder
+    - {from: "08:00", to: "11:30", weight: 0.55}
+    - {from: "13:30", to: "15:30", weight: 0.35}
+    - {from: "07:00", to: "16:30", weight: 0.10}
+  no_order_before_auction_result_min: 5   # [ASSUMPTION] for the auctioned tenor
+  send_delay_s: {median: 45, sigma: 0.8}   # [ASSUMPTION] lognormal delay from parent creation to the first RFQ; no public source
+  # Share of period dealer-to-customer par value of nominal coupons (63 business days, $ billions summed over
+  # the OTR and off-the-run rows of each bucket, divided by the total over the seven buckets). The buckets are by
+  # REMAINING maturity, so the <=2y bucket also holds old 5y/7y notes close to maturity and the 2y weight is
+  # probably high for the 2y tenor proper; this is the best public tenor split and is used as is.
+  tenor_weights:
+    2: 0.19739                       # [DERIVED] TRACE D2C par share, bucket <=2y
+    3: 0.12960                       # [DERIVED] TRACE D2C par share, bucket 2-3y
+    5: 0.26160                       # [DERIVED] TRACE D2C par share, bucket 3-5y
+    7: 0.09286                       # [DERIVED] TRACE D2C par share, bucket 5-7y
+    10: 0.16985                      # [DERIVED] TRACE D2C par share, bucket 7-10y
+    20: 0.05338                      # [DERIVED] TRACE D2C par share, bucket 10-20y
+    30: 0.09531                      # [DERIVED] TRACE D2C par share, bucket >20y
+  run_status_probs: {OTR: 0.80, OLD: 0.15, DOUBLE_OLD: 0.05}   # [ASSUMPTION] placeholder; TRACE OTR share of D2C par by tenor is in trace_reference below
+  size_mm:
+    median: {2: 50, 3: 40, 5: 35, 7: 25, 10: 25, 20: 10, 30: 10}   # [ASSUMPTION] placeholder (a buy-side desk's tickets, larger than the TRACE mean trade size in trace_reference)
+    lognormal_sigma: 0.9             # [ASSUMPTION]
+    clip_mm: [1, 500]                # [ASSUMPTION]
+    round_snap_prob: 0.35            # [ASSUMPTION]
+    round_snap_values: [5, 10, 25, 50, 100, 200]   # [ASSUMPTION]
+  side: {daily_bias_sd: 0.25, p_buy_clip: [0.2, 0.8]}   # [ASSUMPTION]
+  execution_policy_probs: {single_rfq: 0.65, split: 0.25, list: 0.10}   # [ASSUMPTION]
+  split: {n_children: [2, 5], spacing_min: [10, 120]}   # [ASSUMPTION]
+  list_rfq: {n_securities: [2, 4]}   # [ASSUMPTION]
+  n_dealers_policy:                  # [ASSUMPTION] default N by size and run status
+    otr_under_10mm: 5
+    otr_under_50mm: 4
+    otr_50_to_150mm: 3
+    otr_over_150mm: 2
+    off_the_run_over_25mm: 2
+    jitter: {prob: 0.3, delta: 1}
+    single_dealer_axe_prob: 0.08
+  rfq_life_cycle:
+    min_award_wait_s: 8              # [ASSUMPTION] t_award = t_send + max(slowest responder, 8 s)
+    pass_threshold_hs: 1.75          # [ASSUMPTION] pass if best quote worse than mid_eff + 1.75 * hs
+    pass_slack_ticks: 1              # [ASSUMPTION] the threshold is applied before price quantisation, so one 1/256 tick of slack is added
+  traders: {n: 10}                   # [ASSUMPTION] simulated traders, used later by Module 3 queries
+
+# TRACE reference statistics for docs and tests, computed from the same 63 daily files (the weights above are
+# the only TRACE-derived inputs; nothing below is read by the simulator).
+trace_reference:
+  d2c_otr_fraction_of_par:           # [DERIVED] OTR share of D2C par in the bucket, to compare with run_status_probs
+    2: 0.5811
+    3: 0.6915
+    5: 0.7228
+    7: 0.6304
+    10: 0.8294
+    20: 0.4151
+    30: 0.4881
+  d2c_adv_bn_per_day:                # [DERIVED] average D2C par value per business day, $ billions
+    2: 80.405
+    3: 52.790
+    5: 106.557
+    7: 37.824
+    10: 69.187
+    20: 21.744
+    30: 38.824
+  d2c_mean_trade_size_mm_all_runs:   # [DERIVED] D2C par / D2C trade count, $ millions (all trades, mostly small tickets)
+    2: 3.28
+    3: 5.95
+    5: 6.27
+    7: 4.51
+    10: 4.25
+    20: 4.03
+    30: 4.77
+  d2c_mean_trade_size_mm_otr:        # [DERIVED] same for the on-the-run rows
+    2: 8.29
+    3: 7.33
+    5: 6.59
+    7: 4.90
+    10: 4.82
+    20: 4.63
+    30: 5.39
+  nominal_coupon_d2c_bn_per_day: 407.3   # [DERIVED] all nominal coupons, D2C, period average
+
+# --------------------------------------------------------------------------------------------------
+# 5 TCA layer
+tca:
+  markout_horizons_s: [0, 1, 5, 30, 60, 300, 900, 1800]   # [ASSUMPTION] ; the day's close is added as a ninth horizon
+  face_usd_per_mm: 1000000           # [ASSUMPTION] $1mm of face is $1,000,000 at par
+  scorecard_tenor_buckets: {front: [2, 3], belly: [5, 7], long: [10, 20, 30]}   # [ASSUMPTION] dealer scorecard tenor buckets

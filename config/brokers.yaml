@@ -1,0 +1,33 @@
+# Module 2: the planted broker effects of the algo wheel. This is the ground truth that an analysis of the algo wheel must
+# recover, so it lives in configuration and nowhere in code. Every figure is an assumption taken from
+# the simulation design.
+#
+# D: markup -0.25 bp (best spread), but its liquidity providers pre-hedge and signal: each fill adds an
+# extra 0.3 bp of permanent same-direction impact to the effective mid. D therefore looks best on spread
+# cost and on per-fill markouts, and worst on parent implementation shortfall for multi-child orders.
+#
+# markup_bp: fill markup in bp of mid, positive = worse for the client, applied to every fill the
+#   broker handles, on top of the LP markup.
+# markup_windows: UTC time-of-day windows that replace markup_bp inside the window.
+# impact_multiplier: scales the square-root impact increment of each fill.
+# post_fill_impact_bp: extra permanent impact (bp of mid, in the direction of the trade) added to the
+#   effective mid after every fill the broker handles. It is information leakage, not adverse selection.
+
+version: 1
+
+brokers:
+  A:
+    markup_bp: -0.15  # source: simulation design (better fill)
+    impact_multiplier: 1.3  # source: simulation design (worse on large orders)
+  B:
+    markup_bp: 0.20  # source: simulation design (worse fill)
+    impact_multiplier: 1.0  # source: simulation design
+  C:
+    markup_bp: 0.25  # source: simulation design (outside the window)
+    markup_windows:
+      - {start: "07:00", end: "12:00", markup_bp: -0.10}  # source: simulation design (UTC)
+    impact_multiplier: 1.0  # source: simulation design
+  D:
+    markup_bp: -0.25  # source: simulation design (best spread)
+    impact_multiplier: 1.0  # source: simulation design
+    post_fill_impact_bp: 0.3  # source: simulation design (per fill, permanent)

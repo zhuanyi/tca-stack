@@ -1,0 +1,44 @@
+# Macro event calendar for the simulation period 2025-03-03 .. 2025-05-30 (Module 1).
+# `ts_utc` is the release instant in UTC. The sources publish America/New_York wall-clock times (08:30 for
+# NFP and CPI, 14:00 for FOMC statements), converted with the DST rules in tca.core.calendar.
+# Treasury auction events are NOT listed here: they come from the TreasuryDirect data fetched by
+# scripts/fetch_ust_anchors.py (securities_auctioned.csv: auction_date, auction_close_time_et).
+#
+# Verification (all read on 2026-11-03):
+#   BLS monthly schedule pages, which list release date and time (08:30 ET) for each release:
+#     https://www.bls.gov/schedule/2025/03_sched.htm
+#     https://www.bls.gov/schedule/2025/04_sched.htm
+#     https://www.bls.gov/schedule/2025/05_sched.htm
+#   (bls.gov answered a plain scripted request with HTTP 403, so the pages were read through a
+#   third-party page reader; the content is the BLS page text. No attempt was made to bypass the block.)
+#   Federal Reserve FOMC 2025 calendar (meeting dates and statement links):
+#     https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+#   FOMC statement press releases, each carrying "For release at 2:00 p.m. EDT":
+#     https://www.federalreserve.gov/newsevents/pressreleases/monetary20250319a.htm
+#     https://www.federalreserve.gov/newsevents/pressreleases/monetary20250507a.htm
+
+period: {start: 2025-03-03, end: 2025-05-30}
+read_on: 2026-11-03
+
+events:
+  # --- Employment Situation (NFP). https://www.bls.gov/schedule/2025/03_sched.htm and 04_ and 05_
+  - {ts_utc: "2025-03-07T13:30:00Z", type: NFP, reference: "Employment Situation, February 2025", source: "https://www.bls.gov/schedule/2025/03_sched.htm"}
+  - {ts_utc: "2025-04-04T12:30:00Z", type: NFP, reference: "Employment Situation, March 2025", source: "https://www.bls.gov/schedule/2025/04_sched.htm"}
+  - {ts_utc: "2025-05-02T12:30:00Z", type: NFP, reference: "Employment Situation, April 2025", source: "https://www.bls.gov/schedule/2025/05_sched.htm"}
+
+  # --- Consumer Price Index (CPI). Same BLS schedule pages
+  - {ts_utc: "2025-03-12T12:30:00Z", type: CPI, reference: "Consumer Price Index, February 2025", source: "https://www.bls.gov/schedule/2025/03_sched.htm"}
+  - {ts_utc: "2025-04-10T12:30:00Z", type: CPI, reference: "Consumer Price Index, March 2025", source: "https://www.bls.gov/schedule/2025/04_sched.htm"}
+  - {ts_utc: "2025-05-13T12:30:00Z", type: CPI, reference: "Consumer Price Index, April 2025", source: "https://www.bls.gov/schedule/2025/05_sched.htm"}
+
+  # --- FOMC statements (meetings March 18-19 and May 6-7; statement on the second day at 14:00 ET)
+  - {ts_utc: "2025-03-19T18:00:00Z", type: FOMC, reference: "FOMC statement, March 18-19 meeting", source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250319a.htm"}
+  - {ts_utc: "2025-05-07T18:00:00Z", type: FOMC, reference: "FOMC statement, May 6-7 meeting", source: "https://www.federalreserve.gov/newsevents/pressreleases/monetary20250507a.htm"}
+
+# Notes
+#  * The simulator's 08:30 bump applies on NFP and CPI days ("data-release days").
+#  * The 14:00 FOMC bump applies on FOMC days. No FOMC meeting other than the two above falls in the period
+#    (the January 28-29 and June 17-18 meetings are outside it).
+#  * The April 2025 events that drive the sell-off (tariff announcements of April 2 and April 9) are not
+#    scheduled releases and are deliberately not added here; the regime multiplier in the simulator
+#    picks them up from the realised variance of the public par yields.

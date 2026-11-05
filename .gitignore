@@ -1,4 +1,5 @@
 data/raw/
+data/raw
 data/tca.duckdb*
 data/agent_sessions/
 .venv/
@@ -7,3 +8,4 @@ __pycache__/
 .ruff_cache/
 .pytest_cache/
 *Zone.Identifier
+data/ci/

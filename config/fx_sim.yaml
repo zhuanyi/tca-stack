@@ -1,0 +1,204 @@
+# Module 2: spot FX simulated client flow, LP and impact parameters.
+#
+# Every calibrated number carries a `source:` comment. READ means the value was
+# read from the named publication; DERIVED means it was computed from readings
+# and the derivation is stated; ASSUMPTION means it is a pure model choice with
+# no public source. Never edit a number in this file without updating its
+# source line and docs/fx_calibration.md.
+
+version: 1
+
+period:
+  start: "2025-03-03"
+  end: "2025-05-30"
+  # source: simulation design (same window as Module 1).
+  # Business days come from the trading calendar, never from a hard-coded count.
+
+pairs:
+  # weights and order are the flow mix, not a market measurement.
+  order: [EURUSD, USDJPY, GBPUSD, AUDUSD]  # source: simulation design
+  weights:
+    EURUSD: 0.45  # source: simulation design
+    USDJPY: 0.25  # source: simulation design
+    GBPUSD: 0.18  # source: simulation design
+    AUDUSD: 0.12  # source: simulation design
+
+volume_proxy:
+  # FX has no consolidated volume. V is a daily spot-turnover proxy allocated
+  # across the day by the tick-rate profile from fx_liquidity_profile.
+  # source: BIS Triennial Central Bank Survey 2025 (April 2025 turnover),
+  #   https://www.bis.org/publications/triennial-central-bank-survey-foreign-exchange-and-over-the-counter-otc-derivatives-markets-2025
+  #   tables: https://www.bis.org/publications/triennial-survey/rpfx25-fx-tables.xlsx
+  #   read 2026-11-03. "OTC foreign exchange turnover by instrument", 2025 column:
+  #   total 9,595.5 USD bn/day, spot 2,957.1 USD bn/day (net-net basis, daily
+  #   averages in April 2025). "OTC foreign exchange turnover by currency pair",
+  #   2025 column: EURUSD 2,033.3, USDJPY 1,372.0, GBPUSD 781.3, AUDUSD 731.1
+  #   USD bn/day across all instruments, shares 21.190%, 14.298%, 8.143%, 7.619%.
+  survey: "BIS Triennial 2025"
+  basis: "net-net, daily average April 2025, USD bn"
+  url: "https://www.bis.org/publications/triennial-central-bank-survey-foreign-exchange-and-over-the-counter-otc-derivatives-markets-2025"
+  global_turnover_all_instruments_usd_bn_per_day: 9595.5  # source: READ, BIS 2025 table "by instrument"
+  global_spot_usd_bn_per_day: 2957.1  # source: READ, BIS 2025 table "by instrument"
+  # Spot turnover by PAIR is not published, so pair spot is DERIVED as
+  # global spot x (pair share of all instruments). Labelled DERIVED, not READ.
+  pair_share_all_instruments:
+    EURUSD: 0.211902  # source: DERIVED - 2033.3 / 9595.5 from BIS "by currency pair"
+    USDJPY: 0.142980  # source: DERIVED - 1372.0 / 9595.5 from BIS "by currency pair"
+    GBPUSD: 0.081426  # source: DERIVED - 781.3 / 9595.5 from BIS "by currency pair"
+    AUDUSD: 0.076191  # source: DERIVED - 731.1 / 9595.5 from BIS "by currency pair"
+  spot_usd_bn_per_day:
+    EURUSD: 626.6  # source: DERIVED - 2957.1 x 0.211902
+    USDJPY: 422.8  # source: DERIVED - 2957.1 x 0.142980
+    GBPUSD: 240.8  # source: DERIVED - 2957.1 x 0.081426
+    AUDUSD: 225.3  # source: DERIVED - 2957.1 x 0.076191
+  intraday_allocation: "tick-rate profile per pair, 5-minute UTC buckets"  # source: simulation design
+
+flow:
+  parents_per_weekday:
+    distribution: poisson
+    mean: 70  # source: simulation design
+  arrival_time_utc:
+    # mixture of windows, weights sum to 1.0
+    - {start: "07:00", end: "11:00", weight: 0.50}  # source: simulation design (London morning)
+    - {start: "12:00", end: "16:00", weight: 0.35}  # source: simulation design (London-New York overlap)
+    - {start: "16:00", end: "21:00", weight: 0.10}  # source: simulation design
+    - {start: "00:00", end: "07:00", weight: 0.05}  # source: simulation design
+  notional_usd:
+    distribution: lognormal
+    median: 25000000  # source: simulation design (25mm)
+    sigma: 1.0  # source: simulation design
+    min: 1000000  # source: simulation design (1mm)
+    max: 750000000  # source: simulation design (750mm)
+    round_snap_probability: 0.30  # source: simulation design
+    round_snap_values_mm: [5, 10, 25, 50, 100, 250, 500]  # source: simulation design
+  side:
+    buy_probability_base: 0.5  # source: simulation design
+    daily_bias_sigma: 0.25  # source: simulation design ("as in Module 1")
+    buy_probability_floor: 0.2  # source: simulation design
+    buy_probability_cap: 0.8  # source: simulation design
+    # daily bias b_d ~ N(0, 0.25); P(buy) = clip(0.5 + b_d, 0.2, 0.8)
+  urgency_probabilities:
+    LOW: 0.35  # source: simulation design
+    MEDIUM: 0.35  # source: simulation design
+    HIGH: 0.20  # source: simulation design
+    FIX: 0.10  # source: simulation design
+  high_share_risk_transfer: 0.30  # source: simulation design (30% of HIGH)
+
+execution_styles:
+  TWAP:
+    applies_to: LOW  # source: simulation design
+    duration_rule:  # duration = clip(notional_mm / 5, 10, 120) minutes
+      notional_mm_per_minute: 5.0  # source: simulation design (duration = notional_mm / 5 minutes)
+      min_minutes: 10  # source: simulation design
+      max_minutes: 120  # source: simulation design
+    slice_interval_s: [30, 90]  # source: simulation design (jittered)
+    passive_first_s: 20  # source: simulation design
+  POV:
+    applies_to: MEDIUM  # source: simulation design
+    participation: 0.20  # source: simulation design (20% of the volume proxy)
+    max_duration_minutes: 90  # source: simulation design
+    aggressive: true  # source: simulation design
+    slice_interval_s: 10  # source: assumption (no child cadence is given for POV)
+  IS:
+    applies_to: HIGH  # source: simulation design
+    trajectory: almgren_chriss  # source: simulation design (front-loaded)
+    duration_rule:  # duration = clip(notional_mm / 15, 3, 30) minutes
+      notional_mm_per_minute: 15.0  # source: simulation design (duration = notional_mm / 15 minutes)
+      min_minutes: 3  # source: simulation design
+      max_minutes: 30  # source: simulation design
+    # The trajectory is x(t) = Q sinh(kappa (T - t)) / sinh(kappa T) with kappa T = sqrt(risk_aversion * Q_usd),
+    # so a 15mm order has kappa T = 1.2 (mild) and a 750mm order 8.7 (strong).
+    risk_aversion: 1.0e-7  # source: assumption (no value is given for risk aversion; chosen for mild front-loading at 15mm)
+    slice_interval_s: 10  # source: assumption (no child cadence is given for the IS trajectory)
+  RISK_TRANSFER:
+    applies_to: HIGH  # source: simulation design
+    share_of_high: 0.30  # source: simulation design
+    hs_multiple: 1.2  # source: simulation design
+    k_rt: 0.003  # source: assumption (fraction of mid per sqrt(Q/V); no value is given; ~1 bp at Q/V = 0.1%)
+    # px = mid_eff +/- (hs * 1.2 + k_rt * sqrt(Q / V) * mid_tape), hs the tape half-spread in price units
+  FIX_ORDER:
+    applies_to: FIX  # source: simulation design
+    benchmark: wmr_4pm_london  # source: simulation design
+    duration_minutes: 5  # source: simulation design (TWAP over the 5-minute window)
+    aggressive_child_interval_s: 5  # source: simulation design
+    arrival_lead_minutes: [5, 60]  # source: assumption (the design does not say when a fix order reaches the desk; uniform lead before the window)
+
+broker_assignment:
+  # The planted broker effects themselves live in config/brokers.yaml (ground
+  # truth for a clustering analysis), not here.
+  assignment_mix:
+    RANDOM: 0.70  # source: simulation design
+    DISCRETIONARY: 0.30  # source: simulation design
+  discretionary_large_threshold_usd: 100000000  # source: simulation design (over 100mm to broker A)
+  brokers: [A, B, C, D]  # source: simulation design
+
+impact:
+  # tca/core/impact.py: permanent fraction plus exponentially decaying transient.
+  y: 0.7  # source: assumption for FX (borrowed from equity literature, Toth et al. 2011 arXiv:1105.1694; Bucci et al. 2019 arXiv:1811.05230)
+  perm_frac: 0.5  # source: simulation design
+  half_life_minutes: 15  # source: simulation design
+  sigma_d_window_days: 20  # source: simulation design (trailing realised daily vol from 1-minute bars)
+  passive_impact_multiple: 0.5  # source: simulation design (passive fills accrue impact at half the aggressive coefficient)
+
+liquidity_providers:
+  count: 5  # source: simulation design
+  markup_pips: [-0.05, 0.15]  # source: simulation design (uniform in the range, quoted relative to the tape touch)
+  reject_base: [0.01, 0.08]  # source: simulation design
+  reject_asym: [0.0, 0.25]  # source: simulation design
+  hold_ms:  # lognormal, median drawn in the range
+    median_range: [30, 250]  # source: simulation design
+    sigma: 0.5  # source: assumption (spread of the hold-time distribution; only the median range is given)
+  max_clip_mm_by_lp_mm: [50, 40, 30, 20, 10]  # source: assumption (one clip for each of the 5 LPs)
+  quote_noise_pips: 0.05  # source: assumption (quotes carry noise; no scale is given)
+
+last_look:
+  # per LP: reject with reject_base + reject_asym * 1[mid moved against the LP during hold]
+  max_rejections_before_ecn: 3  # source: simulation design
+  ecn_markup_pips: 0.1  # source: simulation design (cross on an ECN at ask_eff + 0.1 pip)
+
+latency:
+  decision_latency_ms: 20  # source: simulation design
+
+passive:
+  timeout_s: 20  # source: simulation design (LOW: passive first for up to 20 s)
+  target_fill_rate: 0.40  # source: simulation design (calibrate lambda_fill to about 40% passive fills; realised rate is 49.8% because crossing alone fills about 46% on the full sample; the target is not reachable through lambda_fill on EURUSD, USDJPY and most GBPUSD runs)
+
+simulation:
+  seed: 20250303  # source: simulation design (CLI example)
+  ci_max_days: 3  # source: simulation design (--profile ci simulates 3 days; capped by the days the synthetic fixture holds)
+  n_traders: 8  # source: assumption (trader_id is a label for a clustering analysis)
+  markout_horizons_s: [0, 1, 5, 30, 60, 300, 900, 1800, 3600]  # source: simulation design
+  passive_calibration_samples: 400  # source: assumption (postings drawn per pair to solve lambda_fill)
+  passive_calibration_days: 5  # source: assumption (first days of the sample used to solve lambda_fill)
+
+pretrade:
+  t_ref_minutes: 30  # source: simulation design
+  duration_exponent: 0.25  # source: simulation design
+  duration_clip: [0.5, 2.0]  # source: simulation design
+  style_factor:
+    aggressive: 1.0  # source: simulation design
+    twap: 0.5  # source: simulation design
+    risk_transfer: 1.2  # source: simulation design
+
+synthetic:
+  # Parameters of the synthetic tick generator behind tests/fixtures. None of this is a measurement of
+  # the market; it only has to look like a quote stream. The real time-of-day profile is
+  # fx_liquidity_profile, built from downloaded ticks, and the fixture does not copy it.
+  start_level:
+    EURUSD: 1.0800  # source: assumption
+    USDJPY: 150.00  # source: assumption
+    GBPUSD: 1.2900  # source: assumption
+    AUDUSD: 0.6300  # source: assumption
+  annual_vol:
+    EURUSD: 0.07  # source: assumption
+    USDJPY: 0.09  # source: assumption
+    GBPUSD: 0.08  # source: assumption
+    AUDUSD: 0.10  # source: assumption
+  base_spread_pips:
+    EURUSD: 0.30  # source: assumption
+    USDJPY: 0.40  # source: assumption
+    GBPUSD: 0.50  # source: assumption
+    AUDUSD: 0.50  # source: assumption
+  ticks_per_day: 20000  # source: assumption (a real pair-day has about 200k; kept small so the fixture stays small)
+  hourly_spread_multiplier: [1.4, 1.5, 1.5, 1.4, 1.3, 1.2, 1.1, 0.9, 0.8, 0.8, 0.8, 0.8, 0.8, 0.7, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.4, 1.8, 2.5, 1.6]  # source: assumption (by UTC hour)
+  hourly_tick_weight: [0.6, 0.6, 0.6, 0.7, 0.7, 0.8, 0.9, 1.4, 1.6, 1.5, 1.3, 1.2, 1.5, 1.8, 1.7, 1.5, 1.3, 1.0, 0.8, 0.7, 0.6, 0.5, 0.4, 0.5]  # source: assumption (by UTC hour)

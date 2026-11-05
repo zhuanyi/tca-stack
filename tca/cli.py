@@ -25,7 +25,11 @@ def db_build(
     ] = None,
 ) -> None:
     """Rebuild the DuckDB file from the parquet tables, one table per file or part folder."""
-    counts = storage.build_duckdb(derived, db_path)
+    try:
+        counts = storage.build_duckdb(derived, db_path)
+    except FileNotFoundError as exc:
+        typer.echo(f"error: {exc}", err=True)
+        raise typer.Exit(1) from exc
     for name, rows in counts.items():
         typer.echo(f"{name}: {rows:,} rows")
     typer.echo(f"{len(counts)} tables built")
