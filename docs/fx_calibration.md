@@ -108,7 +108,7 @@ status is ASSUMPTION; the source is the simulation design.
 | `max_clip_mm` | 50/40/30/20/10 mm for the five LPs | config | Attribute given without a range | 2026-11-03 | ASSUMPTION |
 | Quote noise | 0.05 pips SD | config | Quotes carry noise, no scale given | 2026-11-03 | ASSUMPTION |
 | Rejections before ECN | 3, then cross at `ask_eff + 0.1` pip | simulation design | Simulation design | 2026-11-03 | ASSUMPTION |
-| Passive fill target | about 40% of passive children fill | simulation design | Calibration target for `lambda_fill`; realised rate is 49.8% because crossing alone fills about 46% on the full sample (the model has no queue, so a resting order fills at first touch); the ~40% target is not reachable through `lambda_fill` on EURUSD, USDJPY and most GBPUSD runs | 2026-11-03 | ASSUMPTION |
+| Passive fill target | about 40% of passive children fill | simulation design | Calibration target for `lambda_fill`; realised rate is 49.8% because crossing alone fills about 46% on the full sample (realised rate 48.2% to 50.1%, crossing alone 45.0% to 46.9% over six seeds; the model has no queue, so a resting order fills at first touch); the ~40% target is not reachable through `lambda_fill` on EURUSD, USDJPY and most GBPUSD runs | 2026-11-03 | ASSUMPTION |
 
 ## Notes
 
@@ -119,3 +119,9 @@ status is ASSUMPTION; the source is the simulation design.
   as ADV or as the participation denominator; the BIS proxy above is.
 - Spot turnover by pair is DERIVED from the all-instrument share. If a future BIS release publishes
   spot by pair, replace the derived block in `config/fx_sim.yaml` with the reading and mark it READ.
+- **Passive fill-rate robustness (2026-11-08).** `scripts/fx_fill_rate_seeds.py` reruns the full
+  sample on six master seeds and writes `docs/tables/fx_fill_rate_seeds.csv`. The realised passive
+  fill rate ranges 48.2% to 50.1%, crossing alone 45.0% to 46.9%, and a crossing haircut solved to a
+  40% pooled rate raises TWAP implementation shortfall by 0.054 to 0.081 bp in every seed
+  (mean 0.061, paired standard error 0.006 or less). The shorter-timeout lever of `docs/fx.md`,
+  which lowers TWAP IS by 0.03 to 0.07 bp, was measured on the configured seed only.

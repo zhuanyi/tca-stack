@@ -91,9 +91,13 @@ completion (`tca/fx/replay.py`).
   the calibrator returns `lambda_fill = 0` for every pair except AUDUSD. The model has no queue or
   priority, so a resting order fills at first touch when the tape spread is sub-pip. The effect of
   moving from 49.8% to 40% depends on the lever. A crossing haircut that reaches 40% raises TWAP
-  IS by about 0.06 bp (+0.059, se 0.006), while a shorter timeout that reaches 39% to 42% lowers
-  it by 0.03 to 0.07 bp. These are single-seed results. Passive fills accrue impact at half the
-  aggressive coefficient.
+  IS by about 0.06 bp (+0.059, se 0.006). Both fill rates replicate over master seeds
+  (`scripts/fx_fill_rate_seeds.py`, `docs/tables/fx_fill_rate_seeds.csv`, six seeds): crossing
+  alone fills 45.0% to 46.9% and the calibrated run 48.2% to 50.1%, and a haircut solved to a 40%
+  pooled rate raises TWAP IS in every seed, by 0.054 to 0.081 bp (mean 0.061, paired standard
+  error 0.006 or less). The timeout lever was measured on the configured seed only, where it
+  lowers TWAP IS by 0.03 to 0.07 bp. Passive fills accrue impact at half the aggressive
+  coefficient.
 - **Latency.** Every child's decision time is 20 ms after the tick it acts on.
 - **Fill price.** An aggressive buy fills at `ask_eff + lp_markup + broker_markup` at the acted-on
   tick, a passive buy at its limit; sells mirror this. Impact moves quotes away from the tape and
@@ -316,6 +320,7 @@ uv run tca fx simulate             # orders and replay, seed from config/fx_sim.
 uv run tca fx tca
 uv run tca fx figures
 uv run tca fx summary              # the numbers the findings are written from
+uv run python scripts/fx_fill_rate_seeds.py   # six seeds, the fill-rate ranges quoted above
 ```
 
 The download is about 6,000 hourly files at one request per second. Run it detached; it resumes per

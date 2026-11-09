@@ -1,0 +1,56 @@
+{
+ "history": [
+  {
+   "seconds": 1128.8,
+   "runs_this_batch": [
+    1275,
+    1275
+   ],
+   "seeds": [
+    20250303,
+    20250304,
+    20250305
+   ],
+   "recorded_from": "part logs of the first run; this record was added by hand when the grid was extended"
+  },
+  {
+   "seconds": 1692.0,
+   "runs_this_batch": [
+    1700,
+    2550
+   ],
+   "seeds": [
+    20250306,
+    20250307,
+    20250308,
+    20250309,
+    20250310
+   ]
+  }
+ ],
+ "seconds_this_batch": 1692.0,
+ "parts": 2,
+ "runs": 6800,
+ "cells": 840,
+ "axe_cells": 10,
+ "runs_this_batch": [
+  1700,
+  2550
+ ],
+ "runs_in_part": [
+  1700,
+  2550
+ ],
+ "seeds": [
+  20250303,
+  20250304,
+  20250305,
+  20250306,
+  20250307,
+  20250308,
+  20250309,
+  20250310
+ ],
+ "programmes_per_cell": 400,
+ "days_sampled": 10
+}

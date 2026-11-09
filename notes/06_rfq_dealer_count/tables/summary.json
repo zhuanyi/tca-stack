@@ -1,0 +1,342 @@
+{
+ "generated_utc": "2026-11-09T00:56:35+00:00",
+ "note": "notes/06_rfq_dealer_count",
+ "grid": {
+  "n_dealers": [
+   1,
+   2,
+   3,
+   4,
+   5,
+   7,
+   10
+  ],
+  "sizes": [
+   5,
+   25,
+   50,
+   100,
+   250
+  ],
+  "statuses": [
+   "OTR",
+   "OLD"
+  ],
+  "leakage_scales": [
+   0.0,
+   0.5,
+   1.0,
+   2.0
+  ],
+  "tenors": [
+   2,
+   10,
+   30
+  ],
+  "seeds": [
+   20250303,
+   20250304,
+   20250305,
+   20250306,
+   20250307,
+   20250308,
+   20250309,
+   20250310
+  ],
+  "programmes_per_cell": 400,
+  "days_sampled": 10,
+  "cells": 840,
+  "runs": 6800,
+  "runtime": {
+   "history": [
+    {
+     "seconds": 1128.8,
+     "runs_this_batch": [
+      1275,
+      1275
+     ],
+     "seeds": [
+      20250303,
+      20250304,
+      20250305
+     ],
+     "recorded_from": "part logs of the first run; this record was added by hand when the grid was extended"
+    },
+    {
+     "seconds": 1692.0,
+     "runs_this_batch": [
+      1700,
+      2550
+     ],
+     "seeds": [
+      20250306,
+      20250307,
+      20250308,
+      20250309,
+      20250310
+     ]
+    }
+   ],
+   "seconds_this_batch": 1692.0,
+   "parts": 2,
+   "runs": 6800,
+   "cells": 840,
+   "axe_cells": 10,
+   "runs_this_batch": [
+    1700,
+    2550
+   ],
+   "runs_in_part": [
+    1700,
+    2550
+   ],
+   "seeds": [
+    20250303,
+    20250304,
+    20250305,
+    20250306,
+    20250307,
+    20250308,
+    20250309,
+    20250310
+   ],
+   "programmes_per_cell": 400,
+   "days_sampled": 10
+  }
+ },
+ "order_statistics": {
+  "1": 0.0,
+  "2": 0.5642,
+  "3": 0.8463,
+  "4": 1.0294,
+  "5": 1.163,
+  "7": 1.3522,
+  "10": 1.5388
+ },
+ "dispersion_fit": {
+  "5": {
+   "s": 0.0832,
+   "cost_n1": 0.3492
+  },
+  "25": {
+   "s": 0.0948,
+   "cost_n1": 0.4171
+  },
+  "50": {
+   "s": 0.104,
+   "cost_n1": 0.4586
+  },
+  "100": {
+   "s": 0.0884,
+   "cost_n1": 0.518
+  },
+  "250": {
+   "s": 0.0578,
+   "cost_n1": 0.6365
+  }
+ },
+ "optimal_n_10y_otr": {
+  "5": 3,
+  "25": 2,
+  "50": 1,
+  "100": 1,
+  "250": 1
+ },
+ "cost_at_optimal_10y_otr": {
+  "5": 0.4392,
+  "25": 0.6243,
+  "50": 0.703,
+  "100": 0.8427,
+  "250": 0.8863
+ },
+ "size_where_optimal_drops_below_3": 25.0,
+ "penalty_of_5_dealers_at_250mm": 0.5002,
+ "optimal_n_by_segment": {
+  "2y_OTR": {
+   "5": 3,
+   "25": 3,
+   "50": 2,
+   "100": 3,
+   "250": 5
+  },
+  "2y_OLD": {
+   "5": 3,
+   "25": 3,
+   "50": 3,
+   "100": 3,
+   "250": 3
+  },
+  "10y_OTR": {
+   "5": 3,
+   "25": 2,
+   "50": 1,
+   "100": 1,
+   "250": 1
+  },
+  "10y_OLD": {
+   "5": 5,
+   "25": 3,
+   "50": 3,
+   "100": 3,
+   "250": 1
+  },
+  "30y_OTR": {
+   "5": 3,
+   "25": 2,
+   "50": 1,
+   "100": 1,
+   "250": 1
+  },
+  "30y_OLD": {
+   "5": 5,
+   "25": 5,
+   "50": 4,
+   "100": 2,
+   "250": 1
+  }
+ },
+ "invariants": {
+  "cost_by_n_leak0": {
+   "1": 0.4586,
+   "2": 0.3999,
+   "3": 0.3644,
+   "4": 0.3566,
+   "5": 0.3579,
+   "7": 0.3669,
+   "10": 0.3817
+  },
+  "shift_by_n_leak0": {
+   "1": 0.2179,
+   "2": 0.2613,
+   "3": 0.2701,
+   "4": 0.2721,
+   "5": 0.2751,
+   "7": 0.2761,
+   "10": 0.2757
+  },
+  "cost_by_n_leak2": {
+   "1": 0.458,
+   "2": 0.3991,
+   "3": 0.3592,
+   "4": 0.354,
+   "5": 0.3607,
+   "7": 0.366,
+   "10": 0.3717
+  },
+  "shift_by_n_leak2": {
+   "1": 0.6712,
+   "2": 0.9782,
+   "3": 1.1771,
+   "4": 1.3697,
+   "5": 1.5394,
+   "7": 1.8856,
+   "10": 2.3569
+  }
+ },
+ "figures": {
+  "fig1": "notes/06_rfq_dealer_count/figures/note06_01_competition_benefit.png",
+  "fig2": "notes/06_rfq_dealer_count/figures/note06_02_leakage.png",
+  "fig3": "notes/06_rfq_dealer_count/figures/note06_03_programme_cost.png",
+  "fig4": "notes/06_rfq_dealer_count/figures/note06_04_optimal_n_by_tier.png"
+ },
+ "table1_axe": [
+  {
+   "size": 5.0,
+   "axe_share": 0.7390625,
+   "axe_exec_cost": 0.2697875,
+   "axe_markout_30m": 0.115375,
+   "axe_programme_cost": 0.3416125,
+   "one_exec_cost": 0.3496375,
+   "one_programme_cost": 0.4956125,
+   "comp_exec_cost": 0.26875,
+   "comp_markout_30m": 0.294975,
+   "comp_programme_cost": 0.43925
+  },
+  {
+   "size": 25.0,
+   "axe_share": 0.7271875,
+   "axe_exec_cost": 0.3359125,
+   "axe_markout_30m": 0.9556375,
+   "axe_programme_cost": 0.7531875,
+   "one_exec_cost": 0.417425,
+   "one_programme_cost": 0.6270625,
+   "comp_exec_cost": 0.3306125,
+   "comp_markout_30m": 1.005275,
+   "comp_programme_cost": 0.6406125
+  },
+  {
+   "size": 50.0,
+   "axe_share": 0.7384375,
+   "axe_exec_cost": 0.3720375,
+   "axe_markout_30m": 1.0548125,
+   "axe_programme_cost": 0.7481,
+   "one_exec_cost": 0.456975,
+   "one_programme_cost": 0.7030375,
+   "comp_exec_cost": 0.3615125,
+   "comp_markout_30m": 1.1487375,
+   "comp_programme_cost": 0.7271125
+  },
+  {
+   "size": 100.0,
+   "axe_share": 0.736875,
+   "axe_exec_cost": 0.4534125,
+   "axe_markout_30m": 1.6417375,
+   "axe_programme_cost": 1.0287,
+   "one_exec_cost": 0.5178,
+   "one_programme_cost": 0.8427125,
+   "comp_exec_cost": 0.431825,
+   "comp_markout_30m": 2.0794625,
+   "comp_programme_cost": 1.02755
+  },
+  {
+   "size": 250.0,
+   "axe_share": 0.7303125,
+   "axe_exec_cost": 0.5727875,
+   "axe_markout_30m": 2.4248125,
+   "axe_programme_cost": 1.116925,
+   "one_exec_cost": 0.6347,
+   "one_programme_cost": 0.8863375,
+   "comp_exec_cost": 0.5818375,
+   "comp_markout_30m": 2.8991125,
+   "comp_programme_cost": 1.1604999999999999
+  }
+ ],
+ "table2_calibration": [
+  {
+   "quantity": "Competition benefit",
+   "field_needed": "N asked, number of responses, best quote at each N",
+   "note": "one row per RFQ; compare holding size and tenor fixed",
+   "residual_sd": 0.36,
+   "n_at_0.10": 201,
+   "n_at_0.25": 33,
+   "n_at_0.50": 9
+  },
+  {
+   "quantity": "Post-trade drift",
+   "field_needed": "arrival mid, mid at 5 and 30 minutes after the award",
+   "note": "markouts by N, with dealer identity on the losing side",
+   "residual_sd": 3.48,
+   "n_at_0.10": 19010,
+   "n_at_0.25": 3042,
+   "n_at_0.50": 761
+  },
+  {
+   "quantity": "Arrival shift of repeat RFQs",
+   "field_needed": "send timestamp, arrival mid, side and size of every repeat RFQ",
+   "note": "pair repeat RFQs by security, side and size within the session",
+   "residual_sd": 3.48,
+   "n_at_0.10": 19010,
+   "n_at_0.25": 3042,
+   "n_at_0.50": 761
+  },
+  {
+   "quantity": "Programme cost",
+   "field_needed": "all of the above, plus a programme identifier",
+   "note": "the desk's KPI: cost per programme, not per ticket",
+   "residual_sd": 1.77,
+   "n_at_0.10": 4923,
+   "n_at_0.25": 788,
+   "n_at_0.50": 197
+  }
+ ]
+}
